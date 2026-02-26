@@ -273,6 +273,9 @@ impl Compiler {
             }
             self.chunk.emit(Op::StoreLocal, line);
             self.chunk.emit_u8(idx);
+        } else if let Some(idx) = self.resolve_upvalue(name) {
+            self.chunk.emit(Op::StoreUpval, line);
+            self.chunk.emit_u8(idx);
         } else {
             let idx = self.chunk.add_name(name);
             self.chunk.emit(Op::StoreGlobal, line);

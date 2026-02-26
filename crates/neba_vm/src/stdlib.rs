@@ -23,6 +23,7 @@ pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
     reg!("push",    neba_push);
     reg!("pop",     neba_pop);
     reg!("assert",  neba_assert);
+    reg!("clock",   neba_clock);
 }
 
 fn neba_print(args: &[Value]) -> Result<Value, String> {
@@ -139,4 +140,12 @@ fn neba_assert(args: &[Value]) -> Result<Value, String> {
         }
         None => Err("assert() requires 1 argument".into()),
     }
+}
+fn neba_clock(_args: &[Value]) -> Result<Value, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs_f64();
+    Ok(Value::Float(secs))
 }

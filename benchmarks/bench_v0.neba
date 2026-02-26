@@ -1,0 +1,190 @@
+# ─────────────────────────────────────────────────────────────────
+# Neba — Benchmark Suite v0
+# Baseline per confronti futuri (JIT, LLVM, ottimizzazioni GC)
+#
+# Esegui con:
+#   neba benchmarks/bench_v0.neba
+#
+# Ogni benchmark misura il tempo in millisecondi.
+# ─────────────────────────────────────────────────────────────────
+
+fn ms(start: Float, end: Float) -> Float
+    return (end - start) * 1000.0
+
+fn bench(label: str, t: Float)
+    println(f"  {label}: {t} ms")
+
+println("Neba Benchmark Suite v0")
+println("═══════════════════════════════════")
+
+
+# ─────────────────────────────────────────────────────────────────
+# 1. Integer arithmetic — 10 milioni di operazioni
+# ─────────────────────────────────────────────────────────────────
+println("\n[1] Integer arithmetic (10M ops)")
+
+var t0 = clock()
+var n = 0
+var i = 0
+while i < 10000000
+    n = n + i * 2 - i // 3 + i % 7
+    i += 1
+var t1 = clock()
+bench("while + int ops", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# 2. Float arithmetic — 5 milioni di operazioni
+# ─────────────────────────────────────────────────────────────────
+println("\n[2] Float arithmetic (5M ops)")
+
+t0 = clock()
+var f = 0.0
+i = 0
+while i < 5000000
+    f = f + 1.1 * 2.2 - 0.5
+    i += 1
+t1 = clock()
+bench("while + float ops", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# 3. For-range loop — 1 milione di iterazioni
+# ─────────────────────────────────────────────────────────────────
+println("\n[3] For-range loop (1M iters)")
+
+t0 = clock()
+var sum = 0
+for j in 0..1000000
+    sum += j
+t1 = clock()
+bench("for-range sum", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# 4. Ricorsione — Fibonacci(30)
+# ─────────────────────────────────────────────────────────────────
+println("\n[4] Recursion — fib(30)")
+
+fn fib(n: Int) -> Int
+    if n <= 1
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+t0 = clock()
+let fib30 = fib(30)
+t1 = clock()
+bench(f"fib(30) = {fib30}", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# 5. Closure — chiamate ripetute (500k)
+# ─────────────────────────────────────────────────────────────────
+println("\n[5] Closure calls (500k)")
+
+fn make_counter(start: Int)
+    var c = start
+    fn next() -> Int
+        c += 1
+        return c
+    return next
+
+let counter = make_counter(0)
+t0 = clock()
+i = 0
+while i < 500000
+    counter()
+    i += 1
+t1 = clock()
+bench("closure call", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# 6. Array push/pop — 100k operazioni
+# ─────────────────────────────────────────────────────────────────
+println("\n[6] Array push/pop (100k)")
+
+t0 = clock()
+let arr: Array = []
+i = 0
+while i < 100000
+    push(arr, i)
+    i += 1
+i = 0
+while i < 100000
+    pop(arr)
+    i += 1
+t1 = clock()
+bench("push + pop", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# 7. String concatenation — 10k concatenazioni
+# ─────────────────────────────────────────────────────────────────
+println("\n[7] String concat (10k)")
+
+t0 = clock()
+var s = ""
+i = 0
+while i < 10000
+    s = s + "x"
+    i += 1
+t1 = clock()
+bench(f"concat len={len(s)}", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# 8. Funzioni di ordine superiore — map manuale (1M)
+# ─────────────────────────────────────────────────────────────────
+println("\n[8] Higher-order fn (1M)")
+
+fn applica(f, x: Int) -> Int
+    return f(x)
+
+fn doppio(x: Int) -> Int
+    return x * 2
+
+t0 = clock()
+var acc = 0
+i = 0
+while i < 1000000
+    acc += applica(doppio, i)
+    i += 1
+t1 = clock()
+bench("higher-order call", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# 9. Classi — istanziazione e metodi (100k)
+# ─────────────────────────────────────────────────────────────────
+println("\n[9] Class instantiation + method (100k)")
+
+class Vec2
+    x: Float = 0.0
+    y: Float = 0.0
+
+    fn __init__(self, x: Float, y: Float)
+        self.x = x
+        self.y = y
+
+    fn lunghezza(self) -> Float
+        return (self.x ** 2 + self.y ** 2) ** 0.5
+
+t0 = clock()
+var tot = 0.0
+i = 0
+while i < 100000
+    let v = Vec2(float(i), float(i + 1))
+    tot += v.lunghezza()
+    i += 1
+t1 = clock()
+bench(f"Vec2 ctor+method", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# Sommario
+# ─────────────────────────────────────────────────────────────────
+println("\n═══════════════════════════════════")
+println("Benchmark completato.")
+println("Salva questi risultati come baseline v0.")
+println("Confronta con v0.3.0 (JIT) e v0.4.0 (LLVM).")
