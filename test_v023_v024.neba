@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────
+# Neba — Test di verifica v0.2.3 e v0.2.4
+# ─────────────────────────────────────────────
+
+var passed = 0
+var failed = 0
+
+fn ok(label: str)
+    passed += 1
+    println(f"  ✅ {label}")
+
+fn fail(label: str, got: str)
+    failed += 1
+    println(f"  ❌ {label} → {got}")
+
+
+# ─────────────────────────────────────────────
+# v0.2.3 — Classes
+# ─────────────────────────────────────────────
+println("\n── v0.2.3 Classes ──")
+
+# 1. Definizione e istanziazione base
+class Punto
+    x: Float = 0.0
+    y: Float = 0.0
+
+var p = Punto()
+if typeof(p) == "Instance"
+    ok("class instantiation")
+else
+    fail("class instantiation", typeof(p))
+
+# 2. Assegnazione campi
+p.x = 3.0
+p.y = 4.0
+if p.x == 3.0 and p.y == 4.0
+    ok("field assignment")
+else
+    fail("field assignment", f"x={p.x} y={p.y}")
+
+# 3. Metodi con self
+class Cerchio
+    raggio: Float = 1.0
+
+    fn area(self) -> Float
+        return 3.14159 * self.raggio * self.raggio
+
+var c = Cerchio()
+c.raggio = 5.0
+let a = c.area()
+if a > 78.0 and a < 79.0
+    ok("method with self")
+else
+    fail("method with self", str(a))
+
+# 4. __init__
+class Rettangolo
+    w: Float = 0.0
+    h: Float = 0.0
+
+    fn __init__(self, w: Float, h: Float)
+        self.w = w
+        self.h = h
+
+    fn area(self) -> Float
+        return self.w * self.h
+
+var r = Rettangolo(4.0, 5.0)
+if r.area() == 20.0
+    ok("__init__ with args")
+else
+    fail("__init__ with args", str(r.area()))
+
+# 5. Metodi che chiamano altri metodi
+class Quadrato
+    lato: Float = 0.0
+
+    fn __init__(self, l: Float)
+        self.lato = l
+
+    fn perimetro(self) -> Float
+        return self.lato * 4.0
+
+    fn info(self) -> str
+        return f"lato={self.lato} perimetro={self.perimetro()}"
+
+var q = Quadrato(3.0)
+if q.info() == "lato=3.0 perimetro=12.0"
+    ok("method calling method")
+else
+    fail("method calling method", q.info())
+
+
+# ─────────────────────────────────────────────
+# v0.2.4 — Traits
+# ─────────────────────────────────────────────
+println("\n── v0.2.4 Traits ──")
+
+# 1. Definizione trait
+trait Area
+    fn area(self) -> Float
+        pass
+
+# 2. Implementazione trait su una classe
+class Triangolo
+    base: Float = 0.0
+    altezza: Float = 0.0
+
+impl Area for Triangolo
+    fn area(self) -> Float
+        return (self.base * self.altezza) / 2.0
+
+var t = Triangolo()
+t.base = 6.0
+t.altezza = 4.0
+
+if t.area() == 12.0
+    ok("trait impl + dispatch")
+else
+    fail("trait impl + dispatch", str(t.area()))
+
+# 3. Due classi con stesso trait
+class Disco
+    raggio: Float = 0.0
+
+impl Area for Disco
+    fn area(self) -> Float
+        return 3.14159 * self.raggio * self.raggio
+
+var d = Disco()
+d.raggio = 2.0
+let area_disco = d.area()
+if area_disco > 12.5 and area_disco < 12.6
+    ok("multiple trait impls")
+else
+    fail("multiple trait impls", str(area_disco))
+
+
+# ─────────────────────────────────────────────
+# Risultati
+# ─────────────────────────────────────────────
+println(f"\n── Risultati: {passed} passati, {failed} falliti ──")
+if failed == 0
+    println("🎉 Tutto OK!")
+else
+    println("⚠️  Alcuni test falliti — vedi sopra")

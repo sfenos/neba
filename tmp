@@ -1,0 +1,5 @@
+168:                self.compile_class(name, fields, methods, impls, line)?;
+901:    fn compile_class(
+916:        // Il costruttore: crea istanza, inizializza campi, chiama __init__ se esiste
+924:        // MakeInstance: crea l'istanza
+926:        ctor.chunk.emit(Op::MakeInstance, ctor_line);

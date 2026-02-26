@@ -11,3 +11,4 @@ path = "src/main.rs"
 neba_lexer       = { path = "../neba_lexer" }
 neba_parser      = { path = "../neba_parser" }
 neba_interpreter = { path = "../neba_interpreter" }
+neba_vm          = { path = "../neba_vm" }

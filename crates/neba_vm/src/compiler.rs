@@ -368,12 +368,25 @@ impl Compiler {
             }
 
             ExprKind::Call { callee, args, kwargs } => {
-                self.compile_expr(callee)?;
-                let mut argc = args.len();
-                for a in args { self.compile_expr(a)?; }
-                for (_, v) in kwargs { self.compile_expr(v)?; argc += 1; }
-                self.chunk.emit(Op::Call, line);
-                self.chunk.emit_u8(argc as u8);
+                if let ExprKind::Field { object, field } = &callee.inner {
+                    // Chiamata a metodo: compila obj poi gli args, emetti CallMethod
+                    self.compile_expr(object)?;
+                    let mut argc = args.len();
+                    for a in args { self.compile_expr(a)?; }
+                    for (_, v) in kwargs { self.compile_expr(v)?; argc += 1; }
+                    let idx = self.chunk.add_name(field);
+                    self.chunk.emit(Op::CallMethod, line);
+                    self.chunk.emit_u16(idx);
+                    self.chunk.emit_u8(argc as u8);
+                } else {
+                    // Chiamata a funzione normale
+                    self.compile_expr(callee)?;
+                    let mut argc = args.len();
+                    for a in args { self.compile_expr(a)?; }
+                    for (_, v) in kwargs { self.compile_expr(v)?; argc += 1; }
+                    self.chunk.emit(Op::Call, line);
+                    self.chunk.emit_u8(argc as u8);
+                }
             }
 
             ExprKind::Field { object, field } => {
@@ -954,24 +967,96 @@ impl Compiler {
             }
         }
 
+        // Se esiste __init__, chiamalo con i parametri del costruttore
+        let init_params: Vec<Param> = methods.iter()
+        .find(|m| matches!(&m.inner, StmtKind::Fn { name, .. } if name == "__init__"))
+        .and_then(|m| if let StmtKind::Fn { params, .. } = &m.inner {
+            Some(params.iter().filter(|p| p.name != "self").cloned().collect())
+        } else { None })
+        .unwrap_or_default();
+
+        let arity     = init_params.iter().filter(|p| p.default.is_none()).count();
+        let max_arity = init_params.len();
+
+        if !init_params.is_empty() {
+            // Aggiungi i parametri come locali del costruttore
+            for (i, p) in init_params.iter().enumerate() {
+                ctor.locals.push(crate::compiler::Local {
+                    name:    p.name.clone(),
+                                 depth:   1,
+                                 mutable: true,
+                });
+            }
+            // Stack: [instance] — chiama __init__(self, args...)
+            // Dup instance come receiver
+            ctor.chunk.emit(Op::Dup, ctor_line);
+            // Carica ogni parametro
+            for (i, _) in init_params.iter().enumerate() {
+                ctor.chunk.emit(Op::LoadLocal, ctor_line);
+                ctor.chunk.emit_u8(i as u8);
+            }
+            // CallMethod __init__
+            let init_idx = ctor.chunk.add_name("__init__");
+            ctor.chunk.emit(Op::CallMethod, ctor_line);
+            ctor.chunk.emit_u16(init_idx);
+            ctor.chunk.emit_u8(init_params.len() as u8);
+            ctor.chunk.emit(Op::Pop, ctor_line); // scarta il risultato di __init__
+        }
+
+        // Se esiste __init__, chiamalo con i parametri del costruttore
+        let init_params: Vec<Param> = methods.iter()
+        .find(|m| matches!(&m.inner, StmtKind::Fn { name, .. } if name == "__init__"))
+        .and_then(|m| if let StmtKind::Fn { params, .. } = &m.inner {
+            Some(params.iter().filter(|p| p.name != "self").cloned().collect())
+        } else { None })
+        .unwrap_or_default();
+
+        let arity     = init_params.iter().filter(|p| p.default.is_none()).count();
+        let max_arity = init_params.len();
+
+        if !init_params.is_empty() {
+            // Aggiungi i parametri come locali del costruttore
+            for p in init_params.iter() {
+                ctor.locals.push(Local {
+                    name:    p.name.clone(),
+                                 depth:   1,
+                                 mutable: true,
+                });
+            }
+            // Dup instance come receiver per CallMethod
+            ctor.chunk.emit(Op::Dup, ctor_line);
+            // Carica ogni parametro
+            for (i, _) in init_params.iter().enumerate() {
+                ctor.chunk.emit(Op::LoadLocal, ctor_line);
+                ctor.chunk.emit_u8(i as u8);
+            }
+            // CallMethod __init__
+            let init_idx = ctor.chunk.add_name("__init__");
+            ctor.chunk.emit(Op::CallMethod, ctor_line);
+            ctor.chunk.emit_u16(init_idx);
+            ctor.chunk.emit_u8(init_params.len() as u8);
+            ctor.chunk.emit(Op::Pop, ctor_line);
+        }
+
         // Ritorna l'istanza
         ctor.chunk.emit(Op::Return, ctor_line);
 
         let proto = FnProto {
-            name: ctor_name,
-            arity: 0,
-            max_arity: 0,
-            chunk: ctor.chunk,
-            upvalues: Vec::new(),
-            defaults: Vec::new(),
-            is_async: false,
+            name:      ctor_name,
+            arity,
+            max_arity,
+            chunk:     ctor.chunk,
+            upvalues:  Vec::new(),
+            defaults:  Vec::new(),
+                is_async:  false,
         };
-
-        let proto_idx = self.chunk.add_fn_proto(proto);
-        self.chunk.emit(Op::MakeClosure, line);
-        self.chunk.emit_u16(proto_idx);
-
-        // Definisci il nome della classe come variabile
+        let closure = Value::Closure(std::rc::Rc::new(crate::value::Closure {
+            proto:    std::rc::Rc::new(proto),
+                                                      upvalues: Vec::new(),
+        }));
+        let idx = self.chunk.add_const(closure);
+        self.chunk.emit(Op::Const, line);
+        self.chunk.emit_u16(idx);
         self.define_var(name, false, line)?;
         Ok(())
     }

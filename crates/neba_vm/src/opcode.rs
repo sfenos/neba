@@ -78,11 +78,19 @@ pub enum Op {
     MakeClosure,
     /// `Call [u8:argc]` — chiama top-of-stack-after-args con argc argomenti
     Call,
+    /// `CallMethod [u16:name_idx] [u8:argc]` — chiama obj.method(args) passando self
+//    CallMethod,
+    // ── Funzioni ──────────────────────────────────────────────────────────
+    /// `MakeClosure [u16]` — crea Closure da fn_protos[idx]
+//    MakeClosure,
+    /// `Call [u8:argc]` — chiama top-of-stack-after-args con argc argomenti
+    // Call,
+    /// `CallMethod [u16:name_idx] [u8:argc]` — chiama obj.method(args) passando self
+    CallMethod,
     /// `Return` — ritorna il top dello stack al chiamante
     Return,
     /// `ReturnNil` — ritorna None al chiamante
     ReturnNil,
-
     // ── Collezioni ────────────────────────────────────────────────────────
     /// `MakeArray [u16:count]` — pop count items (ordine LIFO), push Array
     MakeArray,
@@ -168,6 +176,7 @@ impl Op {
             Op::JumpTruePeek  => 2,
             Op::MakeClosure => 2,
             Op::Call        => 1,
+            Op::CallMethod  => 3,   // [u16 name] [u8 argc]
             Op::MakeArray   => 2,
             Op::MakeRange   => 1,
             Op::GetField    => 2,

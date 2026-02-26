@@ -285,7 +285,6 @@ impl Vm {
                 if self.frames.len() >= FRAMES_MAX {
                     return Err(VmError::StackOverflow);
                 }
-                // Stack: [fn, arg0, arg1, ..., argc-1]
                 let fn_idx = self.stack.len() - argc - 1;
                 let callee = self.stack[fn_idx].clone();
                 match callee {
@@ -296,39 +295,110 @@ impl Vm {
                     }
                     Value::Closure(c) => {
                         let proto = &c.proto;
-                        // Controlla arietà
                         if argc < proto.arity || argc > proto.max_arity {
                             return Err(VmError::ArityMismatch {
                                 name: proto.name.clone(),
-                                expected: proto.arity,
-                                got: argc,
+                                       expected: proto.arity,
+                                       got: argc,
                             });
                         }
-                        // Riempi i parametri mancanti con i default
                         let missing = proto.max_arity - argc;
                         for i in 0..missing {
                             let def_idx = proto.defaults.len().saturating_sub(missing - i);
                             let def = proto.defaults.get(def_idx).cloned().unwrap_or(Value::None);
                             push!(def);
                         }
-                        // Il frame inizia a fn_idx (che contiene la fn stessa, poi gli args)
-                        // base = fn_idx + 1 (prima della fn c'è la fn stessa)
                         let new_base = fn_idx + 1;
-                        // Sostituisci il valore della fn con un placeholder None
                         self.stack[fn_idx] = Value::None;
                         let frame = CallFrame {
                             chunk: Rc::new(proto.chunk.clone()),
-                            ip: 0,
-                            base: new_base,
-                            name: proto.name.clone(),
+                            ip:    0,
+                            base:  new_base,
+                            name:  proto.name.clone(),
                         };
                         self.frames.push(frame);
                         return Ok(None);
                     }
-                    // Costruttore di istanza (trattato come closure con nome = class_name)
                     other => {
                         return Err(VmError::NotCallable(other.type_name().to_string()));
                     }
+                }
+            }
+
+            Op::CallMethod => {
+                let name_idx = read_u16!() as usize;
+                let argc     = read_u8!() as usize;
+                let name     = chunk.names[name_idx].clone();
+
+                // Stack: [..., obj, arg0, ..., argN-1]
+                let obj_idx = self.stack.len() - argc - 1;
+                let obj     = self.stack[obj_idx].clone();
+
+                // Recupera il metodo dall'istanza
+                let method = match &obj {
+                    Value::Instance(inst) => {
+                        inst.borrow().fields.get(&name).cloned()
+                        .ok_or_else(|| VmError::UnknownField {
+                            type_name: inst.borrow().class_name.clone(),
+                                    field: name.clone(),
+                        })?
+                    }
+                    other => {
+                        return Err(VmError::UnknownField {
+                            type_name: other.type_name().to_string(),
+                                   field: name.clone(),
+                        });
+                    }
+                };
+
+                // Inserisci self come primo argomento (prima degli altri args)
+                self.stack.insert(obj_idx + 1, obj);
+
+                match method {
+                    Value::Closure(c) => {
+                        let proto   = &c.proto;
+                        // let real_argc = argc + 1; // +1 per self
+                        // if real_argc < proto.arity || real_argc > proto.max_arity {
+                        //     return Err(VmError::ArityMismatch {
+                        //         name: proto.name.clone(),
+                        //                expected: proto.arity,
+                        //                got: real_argc,
+                        //     });
+                        // }
+                        // let missing = proto.max_arity - real_argc;
+
+                        // L'arietà non conta self — il check usa argc originale
+                        if argc < proto.arity || argc > proto.max_arity {
+                            return Err(VmError::ArityMismatch {
+                                name: proto.name.clone(),
+                                       expected: proto.arity,
+                                       got: argc,
+                            });
+                        }
+                        let missing = proto.max_arity - argc;
+
+                        for i in 0..missing {
+                            let def_idx = proto.defaults.len().saturating_sub(missing - i);
+                            let def = proto.defaults.get(def_idx).cloned().unwrap_or(Value::None);
+                            push!(def);
+                        }
+                        let new_base = obj_idx + 1;
+                        self.stack[obj_idx] = Value::None; // placeholder
+                        let frame = CallFrame {
+                            chunk: Rc::new(proto.chunk.clone()),
+                            ip:    0,
+                            base:  new_base,
+                            name:  proto.name.clone(),
+                        };
+                        self.frames.push(frame);
+                        return Ok(None);
+                    }
+                    Value::NativeFn(_, f) => {
+                        let args: Vec<Value> = self.stack.drain(obj_idx..).skip(1).collect();
+                        let result = f(&args).map_err(VmError::Generic)?;
+                        push!(result);
+                    }
+                    other => return Err(VmError::NotCallable(other.type_name().to_string())),
                 }
             }
 
