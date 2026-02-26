@@ -4,7 +4,7 @@ Ultimo aggiornamento: 2026-02-26
 
 ---
 
-## Stato attuale: v0.2.3 ✅
+## Stato attuale: v0.1.9 + v0.2.3 ✅
 
 ---
 
@@ -15,6 +15,13 @@ Ultimo aggiornamento: 2026-02-26
 | v0.1.0 | Lexer: tokenizer completo, indentazione significativa, f-string, numeri | 2026-02-24 |
 | v0.1.1 | Parser + AST: ricorsivo discendente, Pratt, if/match come espressioni | 2026-02-25 |
 | v0.1.2 | Tree-walking interpreter: variabili, funzioni, classi, pattern matching, stdlib base | 2026-02-25 |
+| v0.1.3 | Tree-walking interpreter: aritmetica interi e float | 2026-02-26 |
+| v0.1.4 | REPL: loop interattivo, comando neba | 2026-02-26 |
+| v0.1.5 | Stringhe base, print statement | 2026-02-26 |
+| v0.1.6 | If/else, operatori di confronto | 2026-02-26 |
+| v0.1.7 | While loop, for-range loop (for i in 0..10) | 2026-02-26 |
+| v0.1.8 | Funzioni: definizione, chiamata, ricorsione, closures | 2026-02-26 |
+| v0.1.9 | Modulo system base: stdlib abs/min/max/push/pop | 2026-02-26 |
 | v0.2.0 | Bytecode VM: compiler AST→bytecode, stack machine, opcode set completo | 2026-02-25 |
 | v0.2.1 | Type checker + inferenza di tipi | 2026-02-25 |
 | v0.2.2 | Classi + trait dispatch (interpreter) | 2026-02-25 |
@@ -44,17 +51,10 @@ Ultimo aggiornamento: 2026-02-26
 
 ---
 
-## Roadmap v0.1.x (spostata dopo v0.2.3)
+## Roadmap v0.1.x
 
 | Versione | Obiettivo |
 |----------|-----------|
-| v0.1.3 | Tree-walking interpreter: evaluates integer and float arithmetic |
-| v0.1.4 | REPL: interactive loop, neba command |
-| v0.1.5 | Basic string support, print statement |
-| v0.1.6 | If/else, comparison operators |
-| v0.1.7 | While loops, for-range loops (for i in 0..10) |
-| v0.1.8 | Functions: definition, call, recursion, closures |
-| v0.1.9 | Basic module system: import from local files |
 | v0.1.10 | Benchmark suite v0 + documentation v0 |
 
 ---
