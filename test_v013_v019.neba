@@ -1,0 +1,289 @@
+# ─────────────────────────────────────────────
+# Neba — Test di verifica v0.1.3 → v0.1.9
+# ─────────────────────────────────────────────
+
+var passed = 0
+var failed = 0
+
+fn ok(label: str)
+    passed += 1
+    println(f"  ✅ {label}")
+
+fn fail(label: str, got: str)
+    failed += 1
+    println(f"  ❌ {label} → {got}")
+
+
+# ─────────────────────────────────────────────
+# v0.1.3 — Integer and float arithmetic
+# ─────────────────────────────────────────────
+println("\n── v0.1.3 Arithmetic ──")
+
+if 2 + 3 == 5
+    ok("int add")
+else
+    fail("int add", str(2 + 3))
+
+if 10 - 4 == 6
+    ok("int sub")
+else
+    fail("int sub", str(10 - 4))
+
+if 3 * 4 == 12
+    ok("int mul")
+else
+    fail("int mul", str(3 * 4))
+
+if 10 // 3 == 3
+    ok("int div floor")
+else
+    fail("int div floor", str(10 // 3))
+
+if 10 % 3 == 1
+    ok("int mod")
+else
+    fail("int mod", str(10 % 3))
+
+if 2 ** 8 == 256
+    ok("int pow")
+else
+    fail("int pow", str(2 ** 8))
+
+if 1.5 + 2.5 == 4.0
+    ok("float add")
+else
+    fail("float add", str(1.5 + 2.5))
+
+if 3 + 1.5 == 4.5
+    ok("int+float promotion")
+else
+    fail("int+float promotion", str(3 + 1.5))
+
+
+# ─────────────────────────────────────────────
+# v0.1.5 — String support
+# ─────────────────────────────────────────────
+println("\n── v0.1.5 Strings ──")
+
+let s = "ciao"
+if s == "ciao"
+    ok("string literal")
+else
+    fail("string literal", s)
+
+if s + " mondo" == "ciao mondo"
+    ok("string concat")
+else
+    fail("string concat", s + " mondo")
+
+if s * 2 == "ciaociao"
+    ok("string repeat")
+else
+    fail("string repeat", s * 2)
+
+if len(s) == 4
+    ok("string len")
+else
+    fail("string len", str(len(s)))
+
+if s[0] == "c"
+    ok("string index")
+else
+    fail("string index", s[0])
+
+let nome = "Neba"
+if f"ciao {nome}!" == "ciao Neba!"
+    ok("f-string")
+else
+    fail("f-string", f"ciao {nome}!")
+
+
+# ─────────────────────────────────────────────
+# v0.1.6 — If/else, comparison operators
+# ─────────────────────────────────────────────
+println("\n── v0.1.6 If/else ──")
+
+if 5 > 3
+    ok("greater than")
+else
+    fail("greater than", "false")
+
+if 3 < 5
+    ok("less than")
+else
+    fail("less than", "false")
+
+if 3 <= 3
+    ok("less or equal")
+else
+    fail("less or equal", "false")
+
+if 5 >= 5
+    ok("greater or equal")
+else
+    fail("greater or equal", "false")
+
+if 3 == 3
+    ok("equal")
+else
+    fail("equal", "false")
+
+if 3 != 4
+    ok("not equal")
+else
+    fail("not equal", "false")
+
+var x = 10
+if x > 5
+    ok("if branch taken")
+else
+    fail("if branch taken", "else taken")
+
+if x < 5
+    fail("elif/else", "if taken")
+elif x == 10
+    ok("elif branch taken")
+else
+    fail("elif/else", "else taken")
+
+
+# ─────────────────────────────────────────────
+# v0.1.7 — While and for loops
+# ─────────────────────────────────────────────
+println("\n── v0.1.7 Loops ──")
+
+var count = 0
+while count < 5
+    count += 1
+if count == 5
+    ok("while loop")
+else
+    fail("while loop", str(count))
+
+var sum = 0
+for i in 0..5
+    sum += i
+if sum == 10
+    ok("for range exclusive")
+else
+    fail("for range exclusive", str(sum))
+
+var sum2 = 0
+for i in 0..=5
+    sum2 += i
+if sum2 == 15
+    ok("for range inclusive")
+else
+    fail("for range inclusive", str(sum2))
+
+var found = false
+for i in 0..10
+    if i == 5
+        found = true
+        break
+if found
+    ok("break in for")
+else
+    fail("break in for", "not found")
+
+var evens = 0
+for i in 0..10
+    if i % 2 != 0
+        continue
+    evens += 1
+if evens == 5
+    ok("continue in for")
+else
+    fail("continue in for", str(evens))
+
+
+# ─────────────────────────────────────────────
+# v0.1.8 — Functions
+# ─────────────────────────────────────────────
+println("\n── v0.1.8 Functions ──")
+
+fn somma(a: Int, b: Int) -> Int
+    return a + b
+
+if somma(3, 4) == 7
+    ok("function call")
+else
+    fail("function call", str(somma(3, 4)))
+
+fn fattoriale(n: Int) -> Int
+    if n <= 1
+        return 1
+    return n * fattoriale(n - 1)
+
+if fattoriale(5) == 120
+    ok("recursion")
+else
+    fail("recursion", str(fattoriale(5)))
+
+fn saluta(nome: str, prefisso: str = "Ciao") -> str
+    return f"{prefisso} {nome}!"
+
+if saluta("Neba") == "Ciao Neba!"
+    ok("default parameter")
+else
+    fail("default parameter", saluta("Neba"))
+
+fn make_adder(n: Int)
+    fn adder(x: Int) -> Int
+        return x + n
+    return adder
+
+let add5 = make_adder(5)
+if add5(3) == 8
+    ok("closure")
+else
+    fail("closure", str(add5(3)))
+
+
+# ─────────────────────────────────────────────
+# v0.1.9 — Module system (stub check)
+# ─────────────────────────────────────────────
+println("\n── v0.1.9 Module system ──")
+
+# In v0.1.9 i moduli potrebbero essere stub — verifichiamo se il parser li accetta
+# senza crashare (non testiamo l'import reale)
+# use std::math   ← commentato perché potrebbe dare errore runtime
+
+# Verifichiamo almeno che le funzioni della stdlib siano disponibili
+if abs(-5) == 5
+    ok("stdlib abs")
+else
+    fail("stdlib abs", str(abs(-5)))
+
+if min(3, 7) == 3
+    ok("stdlib min")
+else
+    fail("stdlib min", str(min(3, 7)))
+
+if max(3, 7) == 7
+    ok("stdlib max")
+else
+    fail("stdlib max", str(max(3, 7)))
+
+let arr = [1, 2, 3]
+push(arr, 4)
+if len(arr) == 4
+    ok("stdlib push")
+else
+    fail("stdlib push", str(len(arr)))
+
+let last = pop(arr)
+if last == 4
+    ok("stdlib pop")
+else
+    fail("stdlib pop", str(last))
+
+
+# ─────────────────────────────────────────────
+# Risultati
+# ─────────────────────────────────────────────
+println(f"\n── Risultati: {passed} passati, {failed} falliti ──")
+if failed == 0
+    println("🎉 Tutto OK!")
+else
+    println("⚠️  Alcuni test falliti — vedi sopra")

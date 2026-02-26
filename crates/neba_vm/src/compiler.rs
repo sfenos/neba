@@ -53,6 +53,11 @@ pub struct Compiler {
     /// Nome della funzione (per messaggi di errore)
     fn_name: String,
     is_function: bool,
+    /// Profondità corrente dello stack (per cleanup di break/continue)
+    stack_depth: usize,
+    /// Profondità dello stack all'inizio del body del loop corrente
+    loop_stack_depths: Vec<usize>,
+    loop_local_counts: Vec<usize>,
 }
 
 impl Compiler {
@@ -68,6 +73,9 @@ impl Compiler {
             continue_patches: Vec::new(),
             class_registry: std::collections::HashMap::new(),
             fn_name: "<script>".to_string(),
+            stack_depth: 0,
+            loop_stack_depths: Vec::new(),
+            loop_local_counts: Vec::new(),
             is_function: false,
         }
     }
@@ -82,7 +90,10 @@ impl Compiler {
             continue_patches: Vec::new(),
             class_registry: std::collections::HashMap::new(),
             fn_name: name.to_string(),
+            stack_depth: 0,
+            loop_stack_depths: Vec::new(),
             is_function: true,
+            loop_local_counts: Vec::new(),
         }
     }
 
@@ -118,10 +129,12 @@ impl Compiler {
         let line = stmt.span.line as u32;
         match &stmt.inner {
             StmtKind::Expr(e) => {
-                self.compile_expr(e)?;
-                // in un contesto statement il valore è scartato
-                // tranne nell'ultima stmt di un blocco-espressione (gestito dalla VM)
-                self.chunk.emit(Op::Pop, line);
+                if let ExprKind::If { condition, then_block, elif_branches, else_block } = &e.inner {
+                    self.compile_if_stmt(condition, then_block, elif_branches, else_block, line)?;
+                } else {
+                    self.compile_expr(e)?;
+                    self.chunk.emit(Op::Pop, line);
+                }
             }
             StmtKind::Let { name, value, .. } => {
                 self.compile_expr(value)?;
@@ -152,16 +165,24 @@ impl Compiler {
                 self.compile_for(var, iterable, body, line)?;
             }
             StmtKind::Break => {
+                // Poppa i locali del for prima di saltare
+                if let Some(&n) = self.loop_local_counts.last() {
+                    if n > 0 {
+                        self.chunk.emit(Op::PopN, line);
+                        self.chunk.emit_u8(n as u8);
+                    }
+                }
                 let patch = self.chunk.emit_jump(Op::Jump, line);
                 self.break_patches.last_mut()
-                    .ok_or_else(|| VmError::CompileError("break outside loop".into()))?
-                    .push(patch);
+                .ok_or_else(|| VmError::CompileError("break outside loop".into()))?
+                .push(patch);
             }
             StmtKind::Continue => {
+                self.emit_stack_cleanup(line);
                 let patch = self.chunk.emit_jump(Op::Jump, line);
                 self.continue_patches.last_mut()
-                    .ok_or_else(|| VmError::CompileError("continue outside loop".into()))?
-                    .push(patch);
+                .ok_or_else(|| VmError::CompileError("continue outside loop".into()))?
+                .push(patch);
             }
             StmtKind::Pass => {}
             StmtKind::Class { name, fields, methods, impls } => {
@@ -759,7 +780,7 @@ impl Compiler {
         // Patch break → dopo il loop
         let breaks = self.break_patches.pop().unwrap();
         for p in breaks { self.chunk.patch_jump(p); }
-
+        self.loop_local_counts.pop();
         Ok(())
     }
 
@@ -767,6 +788,8 @@ impl Compiler {
 
     fn compile_for(&mut self, var: &str, iterable: &Expr, body: &[Stmt], line: u32) -> VmResult<()> {
         self.break_patches.push(Vec::new());
+        let locals_before = self.locals.len();
+        self.loop_local_counts.push(0); // aggiornato dopo push_scope
         self.continue_patches.push(Vec::new());
 
         // Compila l'iterabile e convertilo in array
@@ -776,7 +799,7 @@ impl Compiler {
         // Apri lo scope del for PRIMA di aggiungere i locali impliciti,
         // così il body userà uno scope annidato e pop_scope non li toccherà.
         self.push_scope(); // scope_depth per iter/pos/var
-
+        self.loop_stack_depths.push(self.stack_depth);
         // Alloca due locali impliciti: __iter (l'array) e __pos (indice corrente)
         let iter_local = self.locals.len() as u8;
         self.locals.push(Local { name: format!("__iter_{}", iter_local), depth: self.scope_depth, mutable: true });
@@ -790,6 +813,7 @@ impl Compiler {
         // Il var di iterazione
         let var_local = self.locals.len() as u8;
         self.locals.push(Local { name: var.to_string(), depth: self.scope_depth, mutable: true });
+        self.loop_local_counts.last_mut().map(|c| *c = self.locals.len() - locals_before); // ← aggiungi qui
         self.chunk.emit(Op::Nil, line); // placeholder
 
         let loop_start = self.chunk.code.len();
@@ -825,6 +849,7 @@ impl Compiler {
         self.chunk.code[exit_jump + 1] = (ev as u16 >> 8) as u8;
 
         // Chiudi lo scope del for: rimuove iter, pos, var ed emette PopN 3
+        self.loop_stack_depths.pop();
         self.pop_scope(line);
 
         // Patch break (saltano qui, dopo il PopN)
@@ -1111,6 +1136,47 @@ impl Compiler {
         }
         self.chunk.emit(Op::BuildStr, line);
         self.chunk.emit_u16(segments as u16);
+        Ok(())
+    }
+
+    fn emit_stack_cleanup(&mut self, line: u32) {
+        if let Some(&base) = self.loop_stack_depths.last() {
+            let extra = self.stack_depth.saturating_sub(base);
+            if extra == 1 {
+                self.chunk.emit(Op::Pop, line);
+            } else if extra > 1 {
+                self.chunk.emit(Op::PopN, line);
+                self.chunk.emit_u8(extra as u8);
+            }
+        }
+    }
+
+    fn compile_if_stmt(
+        &mut self,
+        condition: &Expr,
+        then_block: &[Stmt],
+        elif_branches: &[(Expr, Vec<Stmt>)],
+                       else_block: &Option<Vec<Stmt>>,
+                           line: u32,
+    ) -> VmResult<()> {
+        self.compile_expr(condition)?;
+        let else_patch = self.chunk.emit_jump(Op::JumpFalse, line);
+        let mut end_patches = Vec::new();
+        for stmt in then_block { self.compile_stmt(stmt)?; }
+        end_patches.push(self.chunk.emit_jump(Op::Jump, line));
+        self.chunk.patch_jump(else_patch);
+        for (cond, block) in elif_branches {
+            let elif_line = cond.span.line as u32;
+            self.compile_expr(cond)?;
+            let elif_else = self.chunk.emit_jump(Op::JumpFalse, elif_line);
+            for stmt in block { self.compile_stmt(stmt)?; }
+            end_patches.push(self.chunk.emit_jump(Op::Jump, elif_line));
+            self.chunk.patch_jump(elif_else);
+        }
+        if let Some(b) = else_block {
+            for stmt in b { self.compile_stmt(stmt)?; }
+        }
+        for p in end_patches { self.chunk.patch_jump(p); }
         Ok(())
     }
 }
