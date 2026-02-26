@@ -174,7 +174,7 @@ impl Op {
             Op::JumpTrue    => 2,
             Op::JumpFalsePeek => 2,
             Op::JumpTruePeek  => 2,
-            Op::MakeClosure => 2,
+            Op::MakeClosure => 3,   // [u16 proto_idx] [u8 n_upvalues]
             Op::Call        => 1,
             Op::CallMethod  => 3,   // [u16 name] [u8 argc]
             Op::MakeArray   => 2,

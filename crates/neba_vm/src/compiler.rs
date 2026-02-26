@@ -58,6 +58,8 @@ pub struct Compiler {
     /// Profondità dello stack all'inizio del body del loop corrente
     loop_stack_depths: Vec<usize>,
     loop_local_counts: Vec<usize>,
+    /// Locali del frame padre (per cattura upvalue)
+    parent_locals: Vec<(String, u8)>,
 }
 
 impl Compiler {
@@ -76,6 +78,7 @@ impl Compiler {
             stack_depth: 0,
             loop_stack_depths: Vec::new(),
             loop_local_counts: Vec::new(),
+            parent_locals: Vec::new(),
             is_function: false,
         }
     }
@@ -94,6 +97,7 @@ impl Compiler {
             loop_stack_depths: Vec::new(),
             is_function: true,
             loop_local_counts: Vec::new(),
+            parent_locals: Vec::new(),
         }
     }
 
@@ -232,14 +236,25 @@ impl Compiler {
     }
 
     fn resolve_upvalue(&mut self, name: &str) -> Option<u8> {
-        // In v0.2.0 non implementiamo upvalue dinamici
-        // Le closure catturano per snapshot (come il tree-walker)
+        if let Some((_, parent_idx)) = self.parent_locals.iter().find(|(n, _)| n == name) {
+            let parent_idx = *parent_idx;
+            // Controlla se già registrato
+            for (i, uv) in self.upvalues.iter().enumerate() {
+                if uv.index == parent_idx { return Some(i as u8); }
+            }
+            let uv_idx = self.upvalues.len() as u8;
+            self.upvalues.push(UpvalueDef { is_local: true, index: parent_idx });
+            return Some(uv_idx);
+        }
         None
     }
 
     fn emit_load(&mut self, name: &str, line: u32) -> VmResult<()> {
         if let Some((idx, _)) = self.resolve_local(name) {
             self.chunk.emit(Op::LoadLocal, line);
+            self.chunk.emit_u8(idx);
+        } else if let Some(idx) = self.resolve_upvalue(name) {
+            self.chunk.emit(Op::LoadUpval, line);
             self.chunk.emit_u8(idx);
         } else {
             let idx = self.chunk.add_name(name);
@@ -872,6 +887,10 @@ impl Compiler {
         let mut fn_compiler = Compiler::new_function(name);
         // Copia il class_registry nel sotto-compiler
         fn_compiler.class_registry = self.class_registry.clone();
+        // Passa i locali del frame corrente come parent_locals per cattura upvalue
+        fn_compiler.parent_locals = self.locals.iter().enumerate()
+            .map(|(i, l)| (l.name.clone(), i as u8))
+            .collect();
 
         // Definisci i parametri come locali del sotto-compiler
         let arity = params.iter().filter(|p| p.default.is_none() && p.name != "self").count();
@@ -895,11 +914,10 @@ impl Compiler {
         let mut defaults = Vec::new();
         for p in params {
             if let Some(def_expr) = &p.default {
-                // Valuta il default a compile-time se è un letterale
                 if let Some(v) = const_eval(def_expr) {
                     defaults.push(v);
                 } else {
-                    defaults.push(Value::None); // placeholder
+                    defaults.push(Value::None);
                 }
             }
         }
@@ -915,8 +933,16 @@ impl Compiler {
         };
 
         let proto_idx = self.chunk.add_fn_proto(proto);
+
+        // Emetti LoadLocal per ogni upvalue catturato dal padre (prima di MakeClosure)
+        let n_upvalues = fn_compiler.upvalues.len();
+        for uv in &fn_compiler.upvalues {
+            self.chunk.emit(Op::LoadLocal, line);
+            self.chunk.emit_u8(uv.index);
+        }
         self.chunk.emit(Op::MakeClosure, line);
         self.chunk.emit_u16(proto_idx);
+        self.chunk.emit_u8(n_upvalues as u8);
 
         Ok(())
     }

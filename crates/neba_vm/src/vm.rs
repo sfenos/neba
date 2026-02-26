@@ -23,6 +23,8 @@ struct CallFrame {
     base: usize,
     /// Nome della funzione (per messaggi di errore).
     name: String,
+    /// Upvalue catturati dalla closure corrente.
+    upvalues: Vec<Upvalue>,
 }
 
 // ── VM ────────────────────────────────────────────────────────────────────
@@ -55,10 +57,11 @@ impl Vm {
 
         let rc_chunk = Rc::new(chunk);
         self.frames.push(CallFrame {
-            chunk: rc_chunk,
-            ip:    0,
-            base:  0,
-            name:  "<script>".to_string(),
+            chunk:    rc_chunk,
+            ip:       0,
+            base:     0,
+            name:     "<script>".to_string(),
+            upvalues: Vec::new(),
         });
 
         loop {
@@ -159,9 +162,17 @@ impl Vm {
                 self.stack[base + idx] = v;
             }
 
-            // ── Upvalue (stub v0.2.0) ─────────────────────────────────────
-            Op::LoadUpval  => { let _ = read_u8!(); push!(Value::None); }
-            Op::StoreUpval => { let _ = read_u8!(); pop!(); }
+            // ── Upvalue ───────────────────────────────────────────────────
+            Op::LoadUpval => {
+                let idx = read_u8!() as usize;
+                let v = self.frames.last().unwrap().upvalues[idx].value.clone();
+                push!(v);
+            }
+            Op::StoreUpval => {
+                let idx = read_u8!() as usize;
+                let v = pop!();
+                self.frames.last_mut().unwrap().upvalues[idx].value = v;
+            }
 
             // ── Globali ───────────────────────────────────────────────────
             Op::LoadGlobal => {
@@ -274,9 +285,17 @@ impl Vm {
 
             // ── Funzioni ──────────────────────────────────────────────────
             Op::MakeClosure => {
-                let idx   = read_u16!() as usize;
-                let proto = Rc::new(chunk.fn_protos[idx].clone());
-                let closure = Closure { proto, upvalues: Vec::new() };
+                let idx        = read_u16!() as usize;
+                let n_upvalues = read_u8!() as usize;
+                let proto      = Rc::new(chunk.fn_protos[idx].clone());
+                let mut upvalues = Vec::with_capacity(n_upvalues);
+                if n_upvalues > 0 {
+                    let start = self.stack.len() - n_upvalues;
+                    for v in self.stack.drain(start..) {
+                        upvalues.push(Upvalue { value: v });
+                    }
+                }
+                let closure = Closure { proto, upvalues };
                 push!(Value::Closure(Rc::new(closure)));
             }
 
@@ -311,10 +330,11 @@ impl Vm {
                         let new_base = fn_idx + 1;
                         self.stack[fn_idx] = Value::None;
                         let frame = CallFrame {
-                            chunk: Rc::new(proto.chunk.clone()),
-                            ip:    0,
-                            base:  new_base,
-                            name:  proto.name.clone(),
+                            chunk:    Rc::new(proto.chunk.clone()),
+                            ip:       0,
+                            base:     new_base,
+                            name:     proto.name.clone(),
+                            upvalues: c.upvalues.clone(),
                         };
                         self.frames.push(frame);
                         return Ok(None);
@@ -385,10 +405,11 @@ impl Vm {
                         let new_base = obj_idx + 1;
                         self.stack[obj_idx] = Value::None; // placeholder
                         let frame = CallFrame {
-                            chunk: Rc::new(proto.chunk.clone()),
-                            ip:    0,
-                            base:  new_base,
-                            name:  proto.name.clone(),
+                            chunk:    Rc::new(proto.chunk.clone()),
+                            ip:       0,
+                            base:     new_base,
+                            name:     proto.name.clone(),
+                            upvalues: c.upvalues.clone(),
                         };
                         self.frames.push(frame);
                         return Ok(None);
