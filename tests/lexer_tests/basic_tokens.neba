@@ -1,0 +1,26 @@
+# lexer test — basic_tokens.neba
+let x = 42
+var name = "Neba"
+let pi = 3.14159
+
+fn add(a: Int, b: Int) -> Int
+    return a + b
+
+let result = add(10, 20)
+print(f"Result: {result}")
+
+if result > 0
+    print("positive")
+else
+    print("non-positive")
+
+for i in 0..5
+    print(i)
+
+let maybe: Option[Int] = Some(99)
+
+match maybe
+    case Some(v) => print(v)
+    case None    => print("nothing")
+
+let handle = spawn add(1, 2)

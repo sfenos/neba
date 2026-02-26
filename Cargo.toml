@@ -1,0 +1,18 @@
+[workspace]
+members = [
+    "crates/neba_lexer",
+    "crates/neba_parser",
+    "crates/neba_interpreter",
+    "crates/neba_vm",
+    "crates/neba_repl",
+    "crates/neba",
+    "crates/neba_typecheck",
+]
+
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Neba Contributors"]
+license = "MIT"

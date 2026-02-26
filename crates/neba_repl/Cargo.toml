@@ -1,0 +1,13 @@
+[package]
+name = "neba_repl"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "neba_repl"
+path = "src/main.rs"
+
+[dependencies]
+neba_lexer       = { path = "../neba_lexer" }
+neba_parser      = { path = "../neba_parser" }
+neba_interpreter = { path = "../neba_interpreter" }

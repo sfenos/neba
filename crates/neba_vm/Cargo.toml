@@ -1,0 +1,8 @@
+[package]
+name = "neba_vm"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+neba_lexer  = { path = "../neba_lexer" }
+neba_parser = { path = "../neba_parser" }
