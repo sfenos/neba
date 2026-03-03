@@ -4,7 +4,7 @@ Ultimo aggiornamento: 2026-02-26
 
 ---
 
-## Stato attuale: v0.2.7 ✅
+## Stato attuale: v0.2.8 ✅
 
 ---
 
@@ -35,6 +35,7 @@ Ultimo aggiornamento: 2026-02-26
 | Versione | Obiettivo |
 |----------|-----------|
 | v0.2.4 ✅ | Traits: definizione, impl, dispatch nella VM |
+| v0.2.8 ✅ | Match expression: bugfix completo (parser, compiler, VM) |
 
 ---
 
@@ -72,9 +73,11 @@ Ultimo aggiornamento: 2026-02-26
 | v0.2.5 ✅ | Lists and Dicts (dynamic, GC-managed) |
 | v0.2.6 ✅ | Native typed Array[T]: Float64, Int64, Int32, Float32 |
 | v0.2.7 ✅ | Array operations: indexing (0-based), slicing, basic arithmetic |
-| v0.2.8 | Error handling: Result[T,E], match, ? operator |
-| v0.2.9 | Standard library v0: math, io, string, collections |
-| v0.2.10 | Benchmark suite v1 + documentation v1 |
+| v0.2.8 ✅ | Match expression: bugfix completo — parser (case opzionale, Dedent orfano), compiler (patch offset, Swap+Pop, slot numbering), VM (opcode Swap) |
+| v0.2.9 | **Mutable upvalue fix**: upvalue condivisi via `Rc<RefCell<Value>>` — fix closure counter/accumulatore (open/closed upvalue system) |
+| v0.2.10 | Error handling: Result[T,E], operatore `?` |
+| v0.2.11 | Standard library v0: math, io, string, collections |
+| v0.2.12 | Benchmark suite v1 + documentation v1 |
 
 **Benchmark target (v0.2.10):** 5× speedup su fibonacci rispetto v0.1. Array sum di 1M floats in <5ms.
 

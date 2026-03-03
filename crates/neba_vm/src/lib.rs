@@ -11,6 +11,22 @@ pub use error::{VmError, VmResult};
 pub use value::Value;
 pub use vm::Vm;
 
+
+/// Compila ed esegue con un limite di step (anti-loop-infinito per debug/test).
+pub fn run_limited(source: &str, max_steps: u64) -> VmResult<Value> {
+    let (program, lex_errors, parse_errors) = neba_parser::parse(source);
+    if let Some(e) = lex_errors.into_iter().next() {
+        return Err(VmError::CompileError(e.to_string()));
+    }
+    if let Some(e) = parse_errors.into_iter().next() {
+        return Err(VmError::CompileError(e.to_string()));
+    }
+    let chunk = Compiler::compile(&program)?;
+    let mut vm = Vm::new();
+    vm.set_step_limit(max_steps);
+    vm.run_chunk(chunk)
+}
+
 /// Compila ed esegue sorgente Neba tramite la bytecode VM.
 pub fn run(source: &str) -> VmResult<Value> {
     let (program, lex_errors, parse_errors) = neba_parser::parse(source);
@@ -525,4 +541,35 @@ typeof(z)"#), Value::str("Int64Array"));
         let v = r("to_list(Int64([1, 2, 3]))[0]");
         assert_eq!(v, Value::Int(1));
     }
+
+    // ── Match expression tests ────────────────────────────────────────────
+    // Usano run_limited per evitare OOM in caso di regressioni
+
+    #[test] fn t_match_lit_arm1()   { assert_eq!(run_limited("match 1\n    1 => 11\n    2 => 22\n    _ => 99", 500).unwrap(), Value::Int(11)); }
+    #[test] fn t_match_lit_arm2()   { assert_eq!(run_limited("match 2\n    1 => 11\n    2 => 22\n    _ => 99", 500).unwrap(), Value::Int(22)); }
+    #[test] fn t_match_wildcard()   { assert_eq!(run_limited("match 3\n    1 => 11\n    2 => 22\n    _ => 99", 500).unwrap(), Value::Int(99)); }
+    #[test] fn t_match_only_wild()  { assert_eq!(run_limited("match 99\n    _ => 7", 500).unwrap(), Value::Int(7)); }
+    #[test] fn t_match_bool()       { assert_eq!(run_limited("match true\n    true => 1\n    false => 0", 500).unwrap(), Value::Int(1)); }
+    #[test] fn t_match_str()        { assert_eq!(run_limited("match \"b\"\n    \"a\" => 1\n    \"b\" => 2\n    _ => 3", 500).unwrap(), Value::Int(2)); }
+    #[test] fn t_match_binding()    { assert_eq!(run_limited("match 42\n    n => n", 500).unwrap(), Value::Int(42)); }
+    #[test] fn t_match_range_hit()  { assert_eq!(run_limited("match 5\n    1..=9 => 1\n    _ => 0", 500).unwrap(), Value::Int(1)); }
+    #[test] fn t_match_range_miss() { assert_eq!(run_limited("match 10\n    1..=9 => 1\n    _ => 0", 500).unwrap(), Value::Int(0)); }
+    #[test] fn t_match_let_result() {
+        assert_eq!(
+            run_limited("let x = 2\nlet r = match x\n    1 => \"uno\"\n    2 => \"due\"\n    _ => \"altro\"\nr", 500).unwrap(),
+            Value::str("due")
+        );
+    }
+    #[test] fn t_match_in_loop() {
+        // Questo è il caso originale che causava OOM — ora deve completare in pochi step
+        assert_eq!(
+            run_limited("var s = 0\nvar i = 0\nwhile i < 3\n    let v = match i\n        0 => 10\n        1 => 20\n        _ => 30\n    s += v\n    i += 1\ns", 5000).unwrap(),
+            Value::Int(60)
+        );
+    }
+    #[test] fn t_match_some()       { assert_eq!(run_limited("match Some(42)\n    Some(v) => v\n    None    => 0", 500).unwrap(), Value::Int(42)); }
+    #[test] fn t_match_none()       { assert_eq!(run_limited("match None\n    Some(v) => v\n    None    => 0", 500).unwrap(), Value::Int(0)); }
+    #[test] fn t_match_or_hit()     { assert_eq!(run_limited("match 2\n    1 | 2 => \"si\"\n    _ => \"no\"", 500).unwrap(), Value::str("si")); }
+    #[test] fn t_match_or_miss()    { assert_eq!(run_limited("match 3\n    1 | 2 => \"si\"\n    _ => \"no\"", 500).unwrap(), Value::str("no")); }
+
 }

@@ -23,6 +23,8 @@ pub enum Op {
     Pop,
     /// Duplica il top
     Dup,
+    /// Scambia i due elementi in cima allo stack (TOS ↔ TOS-1)
+    Swap,
     /// Scarta N elementi dal top (per cleanup di blocchi)  [u8]
     PopN,
 
@@ -163,6 +165,7 @@ impl Op {
     pub fn operand_bytes(self) -> usize {
         match self {
             Op::Const       => 2,
+            Op::Swap        => 0,
             Op::PopN        => 1,
             Op::LoadLocal   => 1,
             Op::StoreLocal  => 1,

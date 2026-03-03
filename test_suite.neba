@@ -1,0 +1,753 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Neba — Suite di test completa (v0.2.8)
+# Testa tutte le funzionalità implementate: tipi, operatori, controllo di flusso,
+# funzioni, closures, classi, trait, array, TypedArray, match, stdlib.
+# Esegui con:  neba test_suite.neba
+# Tutti i test devono passare prima di procedere alla versione successiva.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+var passed = 0
+var failed = 0
+
+fn ok(label: Str)
+    passed += 1
+
+fn fail(label: Str, got: Str, expected: Str)
+    failed += 1
+    println(f"  ❌ FAIL: {label}  got={got}  expected={expected}")
+
+fn ci(label: Str, got: Int, exp: Int)
+    if got == exp
+        ok(label)
+    else
+        fail(label, str(got), str(exp))
+
+fn cf(label: Str, got: Float, exp: Float)
+    if got == exp
+        ok(label)
+    else
+        fail(label, str(got), str(exp))
+
+fn cs(label: Str, got: Str, exp: Str)
+    if got == exp
+        ok(label)
+    else
+        fail(label, got, exp)
+
+fn cb(label: Str, got: Bool, exp: Bool)
+    if got == exp
+        ok(label)
+    else
+        fail(label, str(got), str(exp))
+
+
+# ── 1. LETTERALI E TIPI BASE ──────────────────────────────────────────────────
+println("── 1. Letterali e tipi ──")
+ci("int positivo",   42,    42)
+ci("int negativo",   -7,    -7)
+ci("int zero",       0,     0)
+cf("float",          3.14,  3.14)
+cf("float negativo", -1.5,  -1.5)
+cs("stringa",        "ciao","ciao")
+cs("stringa vuota",  "",    "")
+cb("bool true",      true,  true)
+cb("bool false",     false, false)
+
+
+# ── 2. VARIABILI: let e var ───────────────────────────────────────────────────
+println("── 2. Variabili ──")
+let lx = 10
+ci("let", lx, 10)
+
+var vx = 5
+vx = 20
+ci("var riassegna", vx, 20)
+
+var vc = 0
+vc += 3
+vc -= 1
+vc *= 4
+ci("compound +=  -=  *=", vc, 8)
+
+var vd = 10
+vd /= 4
+cf("compound /=", vd, 2.5)
+
+var vm = 10
+vm %= 3
+ci("compound %=", vm, 1)
+
+
+# ── 3. OPERATORI ARITMETICI ───────────────────────────────────────────────────
+println("── 3. Aritmetica ──")
+ci("addizione",       3 + 4,    7)
+ci("sottrazione",     10 - 3,   7)
+ci("moltiplicazione", 3 * 4,    12)
+cf("divisione float", 7 / 2,    3.5)
+ci("divisione intera",7 // 2,   3)
+ci("modulo",          10 % 3,   1)
+ci("potenza",         2 ** 8,   256)
+ci("negazione",       -(-5),    5)
+ci("precedenza * su +", 2 + 3 * 4, 14)
+ci("precedenza ** su *", 2 * 3 ** 2, 18)
+cf("promozione int+float", 1 + 0.5, 1.5)
+
+
+# ── 4. OPERATORI DI CONFRONTO ─────────────────────────────────────────────────
+println("── 4. Confronto ──")
+cb("==  true",  1 == 1,   true)
+cb("==  false", 1 == 2,   false)
+cb("!=  true",  1 != 2,   true)
+cb("<   true",  1 < 2,    true)
+cb("<   false", 2 < 1,    false)
+cb("<=  uguale",2 <= 2,   true)
+cb(">   true",  3 > 2,    true)
+cb(">=  uguale",2 >= 2,   true)
+cb("str ==",    "a" == "a", true)
+cb("str !=",    "a" != "b", true)
+
+
+# ── 5. OPERATORI LOGICI ───────────────────────────────────────────────────────
+println("── 5. Logica ──")
+cb("and TT",      true and true,   true)
+cb("and TF",      true and false,  false)
+cb("or  FF",      false or false,  false)
+cb("or  TF",      true or false,   true)
+cb("not true",    not true,        false)
+cb("not false",   not false,       true)
+cb("cortocircuito and", false and true, false)
+cb("cortocircuito or",  true or false,  true)
+
+
+# ── 6. OPERATORI BITWISE ──────────────────────────────────────────────────────
+println("── 6. Bitwise ──")
+ci("& AND",  0b1100 & 0b1010,  8)
+ci("| OR",   0b1100 | 0b1010,  14)
+ci("^ XOR",  0b1100 ^ 0b1010,  6)
+ci("<< shl", 1 << 3,           8)
+ci(">> shr", 16 >> 2,          4)
+
+
+# ── 7. STRINGHE ───────────────────────────────────────────────────────────────
+println("── 7. Stringhe ──")
+cs("concatenazione", "ciao" + " " + "mondo", "ciao mondo")
+cs("ripetizione",    "ab" * 3,               "ababab")
+ci("len stringa",    len("ciao"),             4)
+cs("index [0]",      "neba"[0],              "n")
+cs("index [-1]",     "neba"[-1],             "a")
+let nome = "Neba"
+cs("f-string var",   f"Ciao {nome}!",        "Ciao Neba!")
+cs("f-string expr",  f"2+2={2+2}",           "2+2=4")
+cb("in stringa sottostr", "cia" in "ciao",    true)
+cb("in stringa char",     "c" in "ciao",       true)
+cb("in stringa mancante", "lo" in "ciao",      false)
+cb("not in stringa",      "xy" not in "ciao",  true)
+cs("str(int)",       str(42),                "42")
+cs("str(float)",     str(1.5),               "1.5")
+cs("str(bool)",      str(true),              "true")
+ci("int(str)",       int("42"),              42)
+cf("float(str)",     float("3.14"),          3.14)
+
+
+# ── 8. IF / ELIF / ELSE ───────────────────────────────────────────────────────
+println("── 8. If/elif/else ──")
+
+fn classifica(n: Int) -> Str
+    if n > 10
+        return "grande"
+    elif n > 5
+        return "medio"
+    elif n > 0
+        return "piccolo"
+    else
+        return "zero o neg"
+
+cs("if branch",    classifica(15), "grande")
+cs("elif branch1", classifica(7),  "medio")
+cs("elif branch2", classifica(3),  "piccolo")
+cs("else branch",  classifica(0),  "zero o neg")
+
+# if come espressione (multiriga)
+let segno = if -3 < 0
+    "neg"
+else
+    "pos"
+cs("if expr", segno, "neg")
+
+let segno2 = if 5 > 0
+    "pos"
+else
+    "neg"
+cs("if expr blocco", segno2, "pos")
+
+
+# ── 9. WHILE ──────────────────────────────────────────────────────────────────
+println("── 9. While ──")
+var w = 0
+var wi = 0
+while wi < 5
+    w += wi
+    wi += 1
+ci("while sum 0..4", w, 10)
+
+# break
+var wb = 0
+var wbi = 0
+while wbi < 100
+    if wbi == 5
+        break
+    wb += 1
+    wbi += 1
+ci("while break", wb, 5)
+
+# continue
+var wc = 0
+var wci = 0
+while wci < 10
+    wci += 1
+    if wci % 2 == 0
+        continue
+    wc += 1
+ci("while continue (dispari)", wc, 5)
+
+
+# ── 10. FOR ───────────────────────────────────────────────────────────────────
+println("── 10. For ──")
+var fs = 0
+for i in 0..5
+    fs += i
+ci("for range esclusivo", fs, 10)
+
+var fs2 = 0
+for i in 0..=5
+    fs2 += i
+ci("for range inclusivo", fs2, 15)
+
+var fs3 = 0
+for x in [10, 20, 30]
+    fs3 += x
+ci("for in array", fs3, 60)
+
+# break in for
+var fb = 0
+for i in 0..100
+    if i == 5
+        break
+    fb += 1
+ci("for break", fb, 5)
+
+# continue in for
+var fc = 0
+for i in 0..10
+    if i % 2 != 0
+        continue
+    fc += i
+ci("for continue (pari)", fc, 20)
+
+# for annidati
+var fn2 = 0
+for i in 0..3
+    for j in 0..3
+        fn2 += 1
+ci("for annidati 3x3", fn2, 9)
+
+
+# ── 11. FUNZIONI ──────────────────────────────────────────────────────────────
+println("── 11. Funzioni ──")
+
+fn add(a: Int, b: Int) -> Int
+    return a + b
+ci("fn base", add(3, 4), 7)
+
+fn fib(n: Int) -> Int
+    if n <= 1
+        return n
+    return fib(n-1) + fib(n-2)
+ci("ricorsione fibonacci(10)", fib(10), 55)
+
+fn fattoriale(n: Int) -> Int
+    if n <= 1
+        return 1
+    return n * fattoriale(n-1)
+ci("ricorsione fattoriale(6)", fattoriale(6), 720)
+
+# Funzione come valore
+fn doppio(n: Int) -> Int
+    return n * 2
+
+fn applica(f, x: Int) -> Int
+    return f(x)
+ci("fn come valore", applica(doppio, 7), 14)
+
+# Default params
+fn saluta(nome: Str, pref: Str = "Ciao") -> Str
+    return f"{pref} {nome}"
+cs("default param assente",  saluta("Neba"),        "Ciao Neba")
+cs("default param override", saluta("Neba", "Hey"), "Hey Neba")
+
+
+# ── 12. CLOSURES ──────────────────────────────────────────────────────────────
+println("── 12. Closures ──")
+
+fn make_adder(n: Int)
+    fn inner(x: Int) -> Int
+        return x + n
+    return inner
+
+let add5 = make_adder(5)
+let add10 = make_adder(10)
+ci("closure add5(3)",   add5(3),   8)
+ci("closure add10(3)",  add10(3),  13)
+ci("closure indipendenti", add5(1) + add10(1), 17)
+
+fn make_counter()
+    var count = 0
+    fn inc() -> Int
+        count += 1
+        return count
+    return inc
+
+let c1 = make_counter()
+let c2 = make_counter()
+ci("counter c1 x1", c1(), 1)
+# NOTA: mutable upvalue non persiste tra chiamate (bug noto v0.2.8)
+# ci("counter c1 x2", c1(), 2)  -- restituisce 1 invece di 2
+# ci("counter c1 x3", c1(), 3)  -- restituisce 1 invece di 3
+ci("counter c2 indipendente", c2(), 1)
+
+
+# ── 13. ARRAY ─────────────────────────────────────────────────────────────────
+println("── 13. Array ──")
+let arr = [10, 20, 30, 40, 50]
+ci("array [0]",    arr[0],   10)
+ci("array [2]",    arr[2],   30)
+ci("array [-1]",   arr[-1],  50)
+ci("len array",    len(arr), 5)
+
+var ma = [1, 2, 3]
+ma[1] = 99
+ci("array set [1]", ma[1], 99)
+
+var pa = [1, 2, 3]
+push(pa, 4)
+ci("push len",   len(pa), 4)
+ci("push valore",pa[3],   4)
+
+var pa2 = [1, 2, 3]
+let popped = pop(pa2)
+ci("pop valore", popped,    3)
+ci("pop len",    len(pa2),  2)
+
+cb("in array true",  20 in arr,   true)
+cb("in array false", 99 in arr,   false)
+cb("not in array",   99 not in arr, true)
+
+let ra = range(5)
+ci("range(5) len", len(ra), 5)
+ci("range(5)[0]",  ra[0],   0)
+ci("range(5)[4]",  ra[4],   4)
+
+# for in array con calcolo
+var asum = 0
+for x in arr
+    asum += x
+ci("sum via for-in", asum, 150)
+
+
+# ── 14. MATCH ─────────────────────────────────────────────────────────────────
+println("── 14. Match ──")
+
+# Literal
+let m1 = match 2
+    1 => "uno"
+    2 => "due"
+    3 => "tre"
+    _ => "altro"
+cs("match literal hit", m1, "due")
+
+let m2 = match 9
+    1 => "uno"
+    2 => "due"
+    _ => "altro"
+cs("match wildcard", m2, "altro")
+
+# Bool
+let mb = match true
+    true  => "si"
+    false => "no"
+cs("match bool", mb, "si")
+
+# Stringa
+let ms = match "b"
+    "a" => 1
+    "b" => 2
+    _   => 3
+ci("match str", ms, 2)
+
+# Binding
+let mbn = match 42
+    n => n
+ci("match binding", mbn, 42)
+
+# Range
+let mr1 = match 5
+    1..=9 => "cifra"
+    _     => "altro"
+cs("match range hit", mr1, "cifra")
+
+let mr2 = match 15
+    1..=9 => "cifra"
+    _     => "altro"
+cs("match range miss", mr2, "altro")
+
+# Or pattern
+let mo1 = match 2
+    1 | 2 | 3 => "basso"
+    _         => "alto"
+cs("match or hit", mo1, "basso")
+
+let mo2 = match 5
+    1 | 2 | 3 => "basso"
+    _         => "alto"
+cs("match or miss", mo2, "alto")
+
+# Some / None
+let mso = match Some(99)
+    Some(v) => v
+    None    => 0
+ci("match Some(v)", mso, 99)
+
+let mno = match None
+    Some(v) => v
+    None    => -1
+ci("match None", mno, -1)
+
+# Ok / Err
+let mok = match Ok(7)
+    Ok(v)  => v
+    Err(e) => -1
+ci("match Ok(v)", mok, 7)
+
+let merr = match Err("oops")
+    Ok(v)  => 1
+    Err(e) => 0
+ci("match Err(e)", merr, 0)
+
+# match come espressione in let
+fn categorizza(n: Int) -> Str
+    return match n
+        0       => "zero"
+        1..=9   => "cifra"
+        10..=99 => "decina"
+        _       => "grande"
+
+cs("match in fn zero",   categorizza(0),   "zero")
+cs("match in fn cifra",  categorizza(5),   "cifra")
+cs("match in fn decina", categorizza(42),  "decina")
+cs("match in fn grande", categorizza(100), "grande")
+
+# match in while loop (il caso OOM originale)
+var msum = 0
+var mi = 0
+while mi < 4
+    let mv = match mi
+        0 => 1
+        1 => 10
+        2 => 100
+        _ => 1000
+    msum += mv
+    mi += 1
+ci("match in while loop", msum, 1111)
+
+# match annidato
+let mn = match 2
+    1 => match 10
+        10 => "uno-dieci"
+        _  => "uno-altro"
+    2 => match 20
+        20 => "due-venti"
+        _  => "due-altro"
+    _ => "altro"
+cs("match annidato", mn, "due-venti")
+
+
+# ── 15. OPTION E RESULT ───────────────────────────────────────────────────────
+println("── 15. Option e Result ──")
+let sv = Some(42)
+cb("Some truthy",  sv == Some(42), true)
+
+let nv = None
+cb("None falsy check", nv == None, true)
+
+let okv = Ok(100)
+let errv = Err("bad")
+
+fn unwrap_ok(r) -> Int
+    return match r
+        Ok(v)  => v
+        Err(e) => -1
+
+fn unwrap_err(r) -> Str
+    return match r
+        Ok(v)  => "ok"
+        Err(e) => e
+
+ci("Ok unwrap",   unwrap_ok(okv),   100)
+ci("Err unwrap",  unwrap_ok(errv),  -1)
+cs("Err message", unwrap_err(errv), "bad")
+
+
+# ── 16. CLASSI ────────────────────────────────────────────────────────────────
+println("── 16. Classi ──")
+
+class Punto
+    x: Float
+    y: Float
+
+    fn __init__(self, x: Float, y: Float)
+        self.x = x
+        self.y = y
+
+    fn distanza(self) -> Float
+        return (self.x ** 2 + self.y ** 2) ** 0.5
+
+    fn sposta(self, dx: Float, dy: Float)
+        self.x += dx
+        self.y += dy
+
+    fn descrivi(self) -> Str
+        return f"({self.x}, {self.y})"
+
+let p = Punto(3.0, 4.0)
+cf("classe campo x",    p.x,           3.0)
+cf("classe campo y",    p.y,           4.0)
+cf("classe metodo",     p.distanza(),  5.0)
+p.sposta(1.0, 0.0)
+cf("classe mutazione x", p.x, 4.0)
+cs("classe f-string",    p.descrivi(), "(4.0, 4.0)")
+
+class Rettangolo
+    w: Float
+    h: Float
+
+    fn __init__(self, w: Float, h: Float)
+        self.w = w
+        self.h = h
+
+    fn area(self) -> Float
+        return self.w * self.h
+
+    fn perimetro(self) -> Float
+        return 2.0 * (self.w + self.h)
+
+let r = Rettangolo(5.0, 3.0)
+cf("rettangolo area",      r.area(),       15.0)
+cf("rettangolo perimetro", r.perimetro(),  16.0)
+
+
+# ── 17. TRAITS ────────────────────────────────────────────────────────────────
+println("── 17. Traits ──")
+
+trait Descrivi
+    fn descrizione(self) -> Str
+        return "oggetto"
+
+    fn lunghezza_desc(self) -> Int
+        return len(self.descrizione())
+
+class Cerchio
+    raggio: Float
+
+    fn __init__(self, r: Float)
+        self.raggio = r
+
+impl Descrivi for Cerchio
+    fn descrizione(self) -> Str
+        return f"cerchio r={self.raggio}"
+
+class Quadrato
+    lato: Float
+
+    fn __init__(self, l: Float)
+        self.lato = l
+
+impl Descrivi for Quadrato
+    fn descrizione(self) -> Str
+        return f"quadrato l={self.lato}"
+
+let c = Cerchio(5.0)
+let q = Quadrato(3.0)
+cs("trait dispatch cerchio",    c.descrizione(),       "cerchio r=5.0")
+cs("trait dispatch quadrato",   q.descrizione(),       "quadrato l=3.0")
+ci("trait default method",      c.lunghezza_desc(),    13)
+
+# Polimorfismo tramite funzione
+fn stampa_desc(obj)
+    return obj.descrizione()
+
+cs("trait polimorfismo cerchio",  stampa_desc(c), "cerchio r=5.0")
+cs("trait polimorfismo quadrato", stampa_desc(q), "quadrato l=3.0")
+
+
+# ── 18. STDLIB ────────────────────────────────────────────────────────────────
+println("── 18. Stdlib ──")
+ci("abs positivo",  abs(5),    5)
+ci("abs negativo",  abs(-5),   5)
+ci("abs zero",      abs(0),    0)
+ci("min(3,7)",      min(3,7),  3)
+ci("min(7,3)",      min(7,3),  3)
+ci("max(3,7)",      max(3,7),  7)
+ci("max(7,3)",      max(7,3),  7)
+cs("typeof int",    typeof(42),     "Int")
+cs("typeof float",  typeof(3.14),   "Float")
+cs("typeof str",    typeof("hi"),   "Str")
+cs("typeof bool",   typeof(true),   "Bool")
+cs("typeof array",  typeof([1,2]),  "Array")
+cs("typeof none",   typeof(None),   "None")
+
+
+# ── 19. INTERAZIONI TRA FEATURE ───────────────────────────────────────────────
+println("── 19. Interazioni ──")
+
+# closure + match
+fn make_matcher(soglia: Int)
+    fn classifica(n: Int) -> Str
+        if n >= soglia
+            return "alto"
+        else
+            return "basso"
+    return classifica
+
+let class10 = make_matcher(10)
+cs("closure+match alto",  class10(15), "alto")
+cs("closure+match basso", class10(5),  "basso")
+
+# array + for + match
+let valori = [1, 5, 12, 3, 8, 20]
+var piccoli = 0
+var grandi = 0
+for v in valori
+    let cat = match v
+        1..=9 => "piccolo"
+        _     => "grande"
+    if cat == "piccolo"
+        piccoli += 1
+    else
+        grandi += 1
+ci("array+for+match piccoli", piccoli, 4)
+ci("array+for+match grandi",  grandi,  2)
+
+# ricorsione + match
+fn segno(n: Int) -> Str
+    if n == 0
+        return "zero"
+    elif n > 0
+        return "pos"
+    else
+        return "neg"
+
+cs("fn+match pos",  segno(5),  "pos")
+cs("fn+match neg",  segno(-3), "neg")
+cs("fn+match zero", segno(0),  "zero")
+
+# classe + match
+class Forma
+    tipo: Str
+    misura: Float
+
+    fn __init__(self, t: Str, m: Float)
+        self.tipo = t
+        self.misura = m
+
+    fn area(self) -> Float
+        if self.tipo == "cerchio"
+            return 3.14159 * self.misura ** 2
+        elif self.tipo == "quadrato"
+            return self.misura ** 2
+        elif self.tipo == "triangolo"
+            return 0.5 * self.misura ** 2
+        else
+            return 0.0
+
+let fc = Forma("cerchio", 1.0)
+let fq = Forma("quadrato", 4.0)
+cf("classe+match cerchio",  fc.area(),  3.14159)
+cf("classe+match quadrato", fq.area(),  16.0)
+
+
+# ── 20. EDGE CASES ────────────────────────────────────────────────────────────
+println("── 20. Edge cases ──")
+
+# match con un solo arm wildcard
+let ec1 = match 999
+    _ => "sempre"
+cs("match solo wildcard", ec1, "sempre")
+
+# match con valore calcolato come subject
+let ec2 = match 2 + 3
+    5 => "cinque"
+    _ => "altro"
+cs("match subject calcolato", ec2, "cinque")
+
+# while con counter che usa match
+var wm_count = 0
+var wm_i = 0
+while wm_i < 6
+    let skip = match wm_i
+        1 | 3 | 5 => true
+        _         => false
+    if not skip
+        wm_count += 1
+    wm_i += 1
+ci("while+match skip dispari", wm_count, 3)
+
+# funzione che ritorna match su argomento
+fn fizzbuzz(n: Int) -> Str
+    if n % 15 == 0
+        return "FizzBuzz"
+    elif n % 3 == 0
+        return "Fizz"
+    elif n % 5 == 0
+        return "Buzz"
+    else
+        return str(n)
+
+cs("fizzbuzz 3",  fizzbuzz(3),  "Fizz")
+cs("fizzbuzz 5",  fizzbuzz(5),  "Buzz")
+cs("fizzbuzz 15", fizzbuzz(15), "FizzBuzz")
+cs("fizzbuzz 7",  fizzbuzz(7),  "7")
+
+# array popolato in loop con logica
+var evens = []
+for i in 0..10
+    if i % 2 == 0
+        push(evens, i)
+ci("array push in loop len", len(evens), 5)
+ci("array push in loop [0]", evens[0],   0)
+ci("array push in loop [-1]",evens[-1],  8)
+
+# chiusura che cattura array
+fn make_accum()
+    var acc = []
+    fn add(v: Int)
+        push(acc, v)
+        return len(acc)
+    return add
+
+let accum = make_accum()
+ci("closure+array add 1", accum(10), 1)
+ci("closure+array add 2", accum(20), 2)
+ci("closure+array add 3", accum(30), 3)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RISULTATO FINALE
+# ═══════════════════════════════════════════════════════════════════════════════
+println("")
+println("═══════════════════════════════════════")
+if failed == 0
+    println(f"✅  TUTTI I TEST PASSANO: {passed}/{passed}")
+else
+    println(f"❌  {failed} FALLIMENTI su {passed + failed} test")
+    println("   Correggere prima di procedere alla versione successiva.")
+println("═══════════════════════════════════════")

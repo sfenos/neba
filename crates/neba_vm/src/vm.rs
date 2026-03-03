@@ -163,6 +163,8 @@ pub struct Vm {
     frames:  Vec<CallFrame>,
     globals: HashMap<String, (Value, bool)>, // (valore, è_mutabile)
     class_registry: HashMap<String, ClassInfo>,
+    step_count: u64,
+    step_limit: u64,  // 0 = illimitato
 }
 
 impl Vm {
@@ -172,10 +174,14 @@ impl Vm {
             frames:         Vec::with_capacity(32),
             globals:        HashMap::new(),
             class_registry: HashMap::new(),
+            step_count: 0,
+            step_limit: 0,
         };
         stdlib::register_globals(&mut vm.globals);
         vm
     }
+
+    pub fn set_step_limit(&mut self, limit: u64) { self.step_limit = limit; }
 
     // ── Esecuzione ────────────────────────────────────────────────────────
 
@@ -194,6 +200,12 @@ impl Vm {
         });
 
         loop {
+            self.step_count += 1;
+            if self.step_limit > 0 && self.step_count > self.step_limit {
+                return Err(VmError::Generic(format!(
+                    "step limit {} exceeded (infinite loop?)", self.step_limit
+                )));
+            }
             let result = self.step();
             match result {
                 Ok(Some(v)) => {
@@ -273,6 +285,12 @@ impl Vm {
             // ── Stack ─────────────────────────────────────────────────────
             Op::Pop  => { pop!(); }
             Op::Dup  => { let v = peek!(); push!(v); }
+            Op::Swap => {
+                let top   = pop!();
+                let under = pop!();
+                push!(top);
+                push!(under);
+            }
             Op::PopN => {
                 let n = read_u8!() as usize;
                 let len = self.stack.len();

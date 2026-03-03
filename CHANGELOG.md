@@ -5,6 +5,30 @@ Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
 ---
 
+
+## [0.2.8] — bugfix match
+
+### Bug risolti
+- **Fix I**: `compile_match` — arm cleanup ora emette `Swap+Pop` per ogni
+  binding locale (precedentemente le variabili di binding restavano sullo
+  stack come leak, corrompendo i local slot nelle iterazioni successive)
+- **Fix J**: `compile_pattern_bind` — `Constructor(Some/Ok/Err, [Ident])`
+  registra il local direttamente sul valore unwrappato senza un `Dup`
+  extra (eliminato il doppio slot per binding `Some(v)`, `Ok(v)`, `Err(v)`)
+
+### Corretti nella sessione precedente (v0.2.7-fix)
+- Fix A/B: `parser.rs` — keyword `case` opzionale negli arm; `Dedent` orfani
+  skippati nel top-level (causa principale OOM/loop infinito)
+- Fix C/D: `compiler.rs` — offset `fail_patches` per `MatchLit` e `MatchRange`
+  corretti (`patch+1` → `patch+3`/`patch+6`)
+- Fix E/F: aggiunto `Swap+Pop` finale + opcode `Swap`
+- Fix G/H: `Unwrap` in check solo per sub-pattern non-Ident; subject
+  salvato come local implicito per correggere slot numbering
+
+### Test
+- `test_match.neba`: 11/11 ✅
+- Suite totale: 199/199 ✅
+
 ## [0.2.7] — TypedArray operations: indexing, slicing, aritmetica — 2026-03-03
 
 ### Aggiunto

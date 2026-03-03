@@ -96,6 +96,8 @@ impl Parser {
         let mut stmts = Vec::new();
         self.skip_newlines();
         while !matches!(self.peek_kind(), TokenKind::Eof) {
+            // Skip orphan Dedent tokens (can appear after match/if blocks at top level)
+            if matches!(self.peek_kind(), TokenKind::Dedent) { self.advance(); continue; }
             stmts.push(self.parse_stmt());
             self.skip_newlines();
         }
@@ -666,9 +668,11 @@ impl Parser {
         self.skip_newlines();
         while !matches!(self.peek_kind(), TokenKind::Dedent | TokenKind::Eof) {
             if matches!(self.peek_kind(), TokenKind::Newline) { self.advance(); continue; }
-            if !matches!(self.peek_kind(), TokenKind::Case) { break; }
+            // 'case' keyword is optional — LANGUAGE.md syntax uses bare patterns
             let arm_span = self.current_span();
-            self.advance();
+            self.match_tok(&TokenKind::Case); // consume 'case' if present, no-op if absent
+            // After optional 'case', we must be at a valid pattern start; if not, stop
+            if matches!(self.peek_kind(), TokenKind::Dedent | TokenKind::Eof | TokenKind::Newline) { break; }
             let pattern = self.parse_pattern();
             let body = if self.match_tok(&TokenKind::FatArrow) {
                 let stmt = self.parse_stmt();

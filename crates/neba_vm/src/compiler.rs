@@ -702,9 +702,15 @@ impl Compiler {
     // ── Match expression ───────────────────────────────────────────────────
 
     fn compile_match(&mut self, subject: &Expr, arms: &[MatchArm], line: u32) -> VmResult<()> {
+        // FIX: salva il subject in un local temporaneo implicito in uno scope dedicato.
+        // Questo garantisce che i local slot degli arm inizino DOPO il subject, evitando
+        // conflitti tra stack[0]=subject e locals[0]=binding_var.
+        self.push_scope();
         self.compile_expr(subject)?;
-        // Stack: [subject]
-        // Per ogni arm: peek il subject, controlla il pattern, se mismatch jump al prossimo
+        // Registra il subject come local implicito (non accessibile per nome)
+        let subject_local_name = format!("__match_subject_{}", self.locals.len());
+        self.locals.push(Local { name: subject_local_name, depth: self.scope_depth, mutable: false });
+        // Stack: [subject]  --  slot N = subject
         let mut end_patches = Vec::new();
 
         for arm in arms {
@@ -717,11 +723,19 @@ impl Compiler {
             self.push_scope();
             self.compile_pattern_bind(&arm.pattern, arm_line)?;
             self.compile_block_expr(&arm.body, arm_line)?;
-            // Il valore risultato è sullo stack; pop i binding
-            let count = self.locals.iter().rev()
+
+            // Stack: [subject, ...bindings..., result]
+            // Conta i binding locali nello scope dell'arm (esclude __match_subject_)
+            let bind_count = self.locals.iter().rev()
                 .take_while(|l| l.depth == self.scope_depth)
                 .count();
-            for _ in 0..count { self.locals.pop(); }
+            // FIX: emetti Pop per ciascun binding, mantenendo il result in cima.
+            // Strategia: Swap result sopra ogni binding, poi Pop il binding.
+            for _ in 0..bind_count {
+                self.chunk.emit(Op::Swap, arm_line);  // [... binding, result] → [... result, binding]
+                self.chunk.emit(Op::Pop,  arm_line);  // pop binding
+            }
+            for _ in 0..bind_count { self.locals.pop(); }
             self.scope_depth -= 1;
 
             // Ora: [subject, result]
@@ -735,15 +749,19 @@ impl Compiler {
         // Nessun arm matched → None
         self.chunk.emit(Op::Nil, line);
 
+        // Tutti i Jump degli arm e il fallthrough atterrano qui.
+        // Stack: [subject, result]
         for p in end_patches { self.chunk.patch_jump(p); }
-        // Pop il subject
-        // Problema: dopo il match abbiamo [result] sullo stack, ma il subject è SOTTO.
-        // Dobbiamo scambiare e poppare.
-        // In v0.2.0 usiamo un approccio diverso: prima di iniziare il match,
-        // salviamo il subject in un local temporaneo.
-        // TODO: refactoring per match più corretto
-        // Per ora: il subject resta sullo stack ed è responsabilità del chiamante.
-        // La VM dovrà ignorarlo o la pop avviene esplicitamente.
+
+        // FIX: rimuovi il subject da sotto il result
+        // Swap -> [result, subject],  Pop -> [result]
+        self.chunk.emit(Op::Swap, line);
+        self.chunk.emit(Op::Pop, line);
+
+        // Chiudi lo scope del subject (il local implicito è già rimosso da Swap+Pop)
+        self.locals.pop(); // rimuovi __match_subject dal tracking
+        self.scope_depth -= 1;
+
         Ok(())
     }
 
@@ -764,7 +782,8 @@ impl Compiler {
                 self.chunk.emit(Op::MatchLit, line);
                 self.chunk.emit_u16(cidx);
                 self.chunk.emit_i16(0);
-                fail_patches.push(patch + 1);
+                // FIX: offset field is at patch+3 (after opcode byte + 2 bytes of cidx)
+                fail_patches.push(patch + 3);
             }
             Pattern::Constructor(name, inner) => {
                 let (check_op, unwrap) = match name.as_str() {
@@ -779,12 +798,22 @@ impl Compiler {
                 self.chunk.emit_i16(0);
                 fail_patches.push(patch + 1);
                 if unwrap && !inner.is_empty() {
-                    // Unwrap e controlla il valore interno
-                    self.chunk.emit(Op::Unwrap, line);
-                    for p in inner {
-                        self.compile_pattern_check(p, fail_patches, line)?;
+                    // Controlla sub-pattern solo se non sono tutti Ident (puri binding).
+                    // Se sono tutti Ident il check si limita a IsSome/IsOk/IsErr già emesso sopra:
+                    // il bind farà Dup+Unwrap sul Some/Ok/Err ancora intatto sullo stack.
+                    let needs_inner_check = inner.iter().any(|p| !matches!(p, Pattern::Ident(_) | Pattern::Wildcard));
+                    if needs_inner_check {
+                        self.chunk.emit(Op::Unwrap, line);
+                        for p in inner {
+                            self.compile_pattern_check(p, fail_patches, line)?;
+                        }
+                        // NOTA: dopo aver verificato i sub-pattern, lo stack ha il valore
+                        // unwrappato. Il bind si aspetta il costruttore originale, quindi
+                        // qui non serve ri-wrappare: compile_pattern_bind usa Dup+Unwrap
+                        // sul soggetto originale che è ancora sotto nella stack (non modificato
+                        // da peek operations). In questa versione il check con inner usa
+                        // una copia duplicata per sicurezza — TODO: gestione più robusta.
                     }
-                    // Dopo il check ri-wrappa (no-op: il binding avviene separatamente)
                 }
             }
             Pattern::Range { start, end, inclusive } => {
@@ -800,7 +829,8 @@ impl Compiler {
                 self.chunk.emit_u16(hi);
                 self.chunk.emit_u8(*inclusive as u8);
                 self.chunk.emit_i16(0);
-                fail_patches.push(patch + 1);
+                // FIX: offset field is at patch+6 (after opcode + 2*u16 + u8)
+                fail_patches.push(patch + 6);
             }
             Pattern::Or(pats) => {
                 // Se almeno uno matcha, ok. Compile as chain of checks with
@@ -833,9 +863,22 @@ impl Compiler {
             }
             Pattern::Constructor(name, inner) if !inner.is_empty() => {
                 if matches!(name.as_str(), "Some" | "Ok" | "Err") {
+                    // Dup il subject, poi Unwrap → il valore interno è ora in TOS.
+                    // I sub-pattern Ident vengono registrati come locali direttamente
+                    // su quel TOS, SENZA un altro Dup (che lascerebbe uno slot extra).
                     self.chunk.emit(Op::Dup, line);
                     self.chunk.emit(Op::Unwrap, line);
-                    for p in inner { self.compile_pattern_bind(p, line)?; }
+                    // Stack: [..., subject, inner_value]
+                    for p in inner {
+                        match p {
+                            Pattern::Ident(iname) => {
+                                // inner_value è già in cima: non serve Dup, registra il local
+                                self.locals.push(Local { name: iname.clone(), depth: self.scope_depth, mutable: true });
+                            }
+                            Pattern::Wildcard => { /* valore già sullo stack, va rimosso */ }
+                            _ => { self.compile_pattern_bind(p, line)?; }
+                        }
+                    }
                 }
             }
             _ => {}
