@@ -7,10 +7,139 @@ use crate::compiler::ClassInfo;
 use crate::error::{VmError, VmResult};
 use crate::opcode::Op;
 use crate::stdlib;
-use crate::value::{Closure, Instance, Upvalue, Value};
+use crate::value::{Closure, Instance, Upvalue, Value, TypedArrayData};
 
 const STACK_MAX:  usize = 4096;
 const FRAMES_MAX: usize = 256;
+
+// ── Aritmetica element-wise per TypedArray (v0.2.6/v0.2.7) ───────────────
+//
+// Supporta:  TypedArray OP TypedArray  (element-wise, stessa lunghezza)
+//            TypedArray OP scalar      (broadcast scalare)
+//            scalar     OP TypedArray  (broadcast scalare)
+
+fn typed_binop(
+    l: &Value,
+    r: &Value,
+    op_f: impl Fn(f64, f64) -> f64,
+    op_i: impl Fn(i64, i64) -> i64,
+) -> VmResult {
+    // Estrai il TypedArray dal lato sinistro o destro
+    let (ta_val, scalar_val, ta_is_left) = match (l, r) {
+        (Value::TypedArray(_), Value::TypedArray(_)) => {
+            // Array OP Array — gestito separatamente sotto
+            return typed_binop_arrays(l, r, op_f, op_i);
+        }
+        (Value::TypedArray(_), scalar) => (l, scalar, true),
+        (scalar, Value::TypedArray(_)) => (r, scalar, false),
+        _ => unreachable!(),
+    };
+
+    let ta = if let Value::TypedArray(t) = ta_val { t.borrow() } else { unreachable!() };
+    let len = ta.len();
+
+    match &*ta {
+        TypedArrayData::Float64(v) => {
+            let s = scalar_val.as_float()
+                .ok_or_else(|| VmError::TypeError(format!("TypedArray op: scalar must be numeric")))?;
+            let out: Vec<f64> = if ta_is_left {
+                v.iter().map(|&x| op_f(x, s)).collect()
+            } else {
+                v.iter().map(|&x| op_f(s, x)).collect()
+            };
+            Ok(Value::typed_array(TypedArrayData::Float64(out)))
+        }
+        TypedArrayData::Float32(v) => {
+            let s = scalar_val.as_float()
+                .ok_or_else(|| VmError::TypeError("TypedArray op: scalar must be numeric".into()))? as f32;
+            let out: Vec<f32> = if ta_is_left {
+                v.iter().map(|&x| op_f(x as f64, s as f64) as f32).collect()
+            } else {
+                v.iter().map(|&x| op_f(s as f64, x as f64) as f32).collect()
+            };
+            Ok(Value::typed_array(TypedArrayData::Float32(out)))
+        }
+        TypedArrayData::Int64(v) => {
+            // Se lo scalare è Float, promovi l'output a Float64
+            if let Some(s) = scalar_val.as_float() {
+                let out: Vec<f64> = if ta_is_left {
+                    v.iter().map(|&x| op_f(x as f64, s)).collect()
+                } else {
+                    v.iter().map(|&x| op_f(s, x as f64)).collect()
+                };
+                return Ok(Value::typed_array(TypedArrayData::Float64(out)));
+            }
+            let s = match scalar_val { Value::Int(n) => *n, _ => return Err(VmError::TypeError("Int64Array op: scalar must be Int or Float".into())) };
+            let out: Vec<i64> = if ta_is_left {
+                v.iter().map(|&x| op_i(x, s)).collect()
+            } else {
+                v.iter().map(|&x| op_i(s, x)).collect()
+            };
+            Ok(Value::typed_array(TypedArrayData::Int64(out)))
+        }
+        TypedArrayData::Int32(v) => {
+            if let Some(s) = scalar_val.as_float() {
+                let out: Vec<f64> = if ta_is_left {
+                    v.iter().map(|&x| op_f(x as f64, s)).collect()
+                } else {
+                    v.iter().map(|&x| op_f(s, x as f64)).collect()
+                };
+                return Ok(Value::typed_array(TypedArrayData::Float64(out)));
+            }
+            let s = match scalar_val { Value::Int(n) => *n as i32, _ => return Err(VmError::TypeError("Int32Array op: scalar must be Int or Float".into())) };
+            let out: Vec<i32> = if ta_is_left {
+                v.iter().map(|&x| op_i(x as i64, s as i64) as i32).collect()
+            } else {
+                v.iter().map(|&x| op_i(s as i64, x as i64) as i32).collect()
+            };
+            Ok(Value::typed_array(TypedArrayData::Int32(out)))
+        }
+    }
+}
+
+fn typed_binop_arrays(
+    l: &Value,
+    r: &Value,
+    op_f: impl Fn(f64, f64) -> f64,
+    op_i: impl Fn(i64, i64) -> i64,
+) -> VmResult {
+    let (tl, tr) = match (l, r) {
+        (Value::TypedArray(a), Value::TypedArray(b)) => (a.borrow(), b.borrow()),
+        _ => unreachable!(),
+    };
+    if tl.len() != tr.len() {
+        return Err(VmError::TypeError(format!(
+            "TypedArray size mismatch: {} vs {}", tl.len(), tr.len()
+        )));
+    }
+    let len = tl.len();
+    match (&*tl, &*tr) {
+        (TypedArrayData::Float64(a), TypedArrayData::Float64(b)) => {
+            let out: Vec<f64> = a.iter().zip(b.iter()).map(|(&x, &y)| op_f(x, y)).collect();
+            Ok(Value::typed_array(TypedArrayData::Float64(out)))
+        }
+        (TypedArrayData::Int64(a), TypedArrayData::Int64(b)) => {
+            let out: Vec<i64> = a.iter().zip(b.iter()).map(|(&x, &y)| op_i(x, y)).collect();
+            Ok(Value::typed_array(TypedArrayData::Int64(out)))
+        }
+        (TypedArrayData::Int32(a), TypedArrayData::Int32(b)) => {
+            let out: Vec<i32> = a.iter().zip(b.iter()).map(|(&x, &y)| op_i(x as i64, y as i64) as i32).collect();
+            Ok(Value::typed_array(TypedArrayData::Int32(out)))
+        }
+        (TypedArrayData::Float32(a), TypedArrayData::Float32(b)) => {
+            let out: Vec<f32> = a.iter().zip(b.iter()).map(|(&x, &y)| op_f(x as f64, y as f64) as f32).collect();
+            Ok(Value::typed_array(TypedArrayData::Float32(out)))
+        }
+        // Dtypes misti → promuovi a Float64
+        _ => {
+            let a: Vec<f64> = (0..len).map(|i| tl.get(i).unwrap().as_float().unwrap()).collect();
+            let b: Vec<f64> = (0..len).map(|i| tr.get(i).unwrap().as_float().unwrap()).collect();
+            let out: Vec<f64> = a.iter().zip(b.iter()).map(|(&x, &y)| op_f(x, y)).collect();
+            Ok(Value::typed_array(TypedArrayData::Float64(out)))
+        }
+    }
+}
+
 
 // ── Call frame ────────────────────────────────────────────────────────────
 
@@ -478,17 +607,23 @@ impl Vm {
                         let i = self.resolve_idx(*i, len)?;
                         arr.borrow_mut()[i] = val;
                     }
+                    (Value::TypedArray(t), Value::Int(i)) => {
+                        let len = t.borrow().len();
+                        let i = crate::value::resolve_idx(*i, len)
+                            .map_err(|e| VmError::Generic(e))?;
+                        t.borrow_mut().set(i, val)
+                            .map_err(|e| VmError::TypeError(e))?;
+                    }
                     (Value::Dict(d), key) => {
                         let key = key.clone();
                         let mut d = d.borrow_mut();
-                        // Aggiorna se la chiave esiste, altrimenti inserisce
                         if let Some(entry) = d.iter_mut().find(|(k, _)| k == &key) {
                             entry.1 = val;
                         } else {
                             d.push((key, val));
                         }
                     }
-                    _ => return Err(VmError::TypeError("index assignment requires Array or Dict".into())),
+                    _ => return Err(VmError::TypeError("index assignment requires Array, TypedArray or Dict".into())),
                 }
             }
 
@@ -627,11 +762,16 @@ impl Vm {
                 let arr = match v {
                     Value::Array(a) => a,
                     Value::Dict(d)  => {
-                        // Itera sulle coppie [key, value]
                         let pairs: Vec<Value> = d.borrow().iter()
                             .map(|(k, v)| Value::array(vec![k.clone(), v.clone()]))
                             .collect();
                         Rc::new(RefCell::new(pairs))
+                    }
+                    Value::TypedArray(t) => {
+                        // Itera sugli elementi come valori scalari (Int o Float)
+                        let d = t.borrow();
+                        let elems: Vec<Value> = (0..d.len()).map(|i| d.get(i).unwrap()).collect();
+                        Rc::new(RefCell::new(elems))
                     }
                     Value::Str(s)   => {
                         let chars: Vec<Value> = s.chars().map(|c| Value::str(c.to_string())).collect();
@@ -703,6 +843,9 @@ impl Vm {
             (Value::Int(a),   Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
             (Value::Float(a), Value::Int(b))   => Ok(Value::Float(a + *b as f64)),
             (Value::Str(a),   Value::Str(b))   => Ok(Value::str(format!("{}{}", a, b))),
+            // TypedArray element-wise
+            (Value::TypedArray(_), _) | (_, Value::TypedArray(_)) =>
+                typed_binop(&l, &r, |a, b| a + b, |a, b| a + b),
             _ => Err(VmError::TypeError(format!("'+' between {} and {}", l.type_name(), r.type_name()))),
         }
     }
@@ -712,6 +855,8 @@ impl Vm {
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
             (Value::Int(a),   Value::Float(b)) => Ok(Value::Float(*a as f64 - b)),
             (Value::Float(a), Value::Int(b))   => Ok(Value::Float(a - *b as f64)),
+            (Value::TypedArray(_), _) | (_, Value::TypedArray(_)) =>
+                typed_binop(&l, &r, |a, b| a - b, |a, b| a - b),
             _ => Err(VmError::TypeError(format!("'-' between {} and {}", l.type_name(), r.type_name()))),
         }
     }
@@ -723,14 +868,22 @@ impl Vm {
             (Value::Float(a), Value::Int(b))   => Ok(Value::Float(a * *b as f64)),
             (Value::Str(s),   Value::Int(n))   => Ok(Value::str(s.repeat((*n).max(0) as usize))),
             (Value::Int(n),   Value::Str(s))   => Ok(Value::str(s.repeat((*n).max(0) as usize))),
+            (Value::TypedArray(_), _) | (_, Value::TypedArray(_)) =>
+                typed_binop(&l, &r, |a, b| a * b, |a, b| a * b),
             _ => Err(VmError::TypeError(format!("'*' between {} and {}", l.type_name(), r.type_name()))),
         }
     }
     fn op_div(&self, l: Value, r: Value) -> VmResult {
-        let b = r.as_float().ok_or_else(|| VmError::TypeError(format!("'/' on {}", r.type_name())))?;
-        if b == 0.0 { return Err(VmError::DivisionByZero); }
-        let a = l.as_float().ok_or_else(|| VmError::TypeError(format!("'/' on {}", l.type_name())))?;
-        Ok(Value::Float(a / b))
+        match (&l, &r) {
+            (Value::TypedArray(_), _) | (_, Value::TypedArray(_)) =>
+                typed_binop(&l, &r, |a, b| a / b, |a, b| a / b),
+            _ => {
+                let b = r.as_float().ok_or_else(|| VmError::TypeError(format!("'/' on {}", r.type_name())))?;
+                if b == 0.0 { return Err(VmError::DivisionByZero); }
+                let a = l.as_float().ok_or_else(|| VmError::TypeError(format!("'/' on {}", l.type_name())))?;
+                Ok(Value::Float(a / b))
+            }
+        }
     }
     fn op_intdiv(&self, l: Value, r: Value) -> VmResult {
         match (&l, &r) {
@@ -816,12 +969,34 @@ impl Vm {
     fn eval_index(&self, obj: Value, idx: Value) -> VmResult {
         match &obj {
             Value::Dict(d) => {
-                // I dict accettano qualsiasi valore come chiave
                 let d = d.borrow();
                 d.iter()
                     .find(|(k, _)| k == &idx)
                     .map(|(_, v)| v.clone())
                     .ok_or_else(|| VmError::Generic(format!("key not found in Dict: {}", idx)))
+            }
+            Value::TypedArray(t) => {
+                let ta = t.borrow();
+                let len = ta.len();
+                match &idx {
+                    // Indice scalare → restituisce il valore
+                    Value::Int(i) => {
+                        let idx_usize = crate::value::resolve_idx(*i, len)
+                            .map_err(|e| VmError::Generic(e))?;
+                        ta.get(idx_usize).ok_or_else(|| VmError::IndexOutOfBounds { index: *i, len })
+                    }
+                    // Slice con Array di indici (prodotto da Range) → nuovo TypedArray
+                    Value::Array(arr) => {
+                        let indices: Vec<i64> = arr.borrow().iter()
+                            .map(|v| if let Value::Int(n) = v { Ok(*n) }
+                                else { Err(VmError::TypeError("slice indices must be Int".into())) })
+                            .collect::<Result<_, _>>()?;
+                        let sliced = ta.slice_indices(&indices, len)
+                            .map_err(|e| VmError::Generic(e))?;
+                        Ok(Value::typed_array(sliced))
+                    }
+                    _ => Err(VmError::TypeError(format!("TypedArray index must be Int or Range, got {}", idx.type_name()))),
+                }
             }
             _ => {
                 // Array e Str richiedono indici Int

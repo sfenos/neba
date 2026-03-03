@@ -5,7 +5,36 @@ Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
 ---
 
-## [0.2.5] — Lists e Dicts (dynamic, GC-managed) — 2026-03-03
+## [0.2.7] — TypedArray operations: indexing, slicing, aritmetica — 2026-03-03
+
+### Aggiunto
+- **Indexing** su TypedArray: `a[i]` (positivo e negativo), `a[i] = val`
+- **Slicing** con range: `a[1..4]` → nuovo TypedArray dello stesso dtype
+- **Aritmetica element-wise**: `+`, `-`, `*`, `/` tra TypedArray e scalare o TypedArray
+  - Broadcast scalare commutativo: `scalar OP array` e `array OP scalar`
+  - Array-array: stessa lunghezza e dtype, o promozione a Float64 per dtype misti
+- **Funzioni aggregate**: `sum()`, `mean()`, `dot()`, `min_elem()`, `max_elem()`
+- **`to_list()`**: converte TypedArray in Array dinamico
+- **Iterazione**: `for x in typed_array` itera sugli elementi come scalari
+- **31 nuovi unit test** + **36 test di integrazione** in `test_v026_v027.neba`
+  - Include caso realistico: regressione lineare con dot/sum su Float64Array
+
+---
+
+## [0.2.6] — Native TypedArray (Float64, Int64, Int32, Float32) — 2026-03-03
+
+### Aggiunto
+- **Tipo `TypedArray`** nella VM: `Value::TypedArray(RcTypedArray)`
+  - Rappresentazione interna compatta: `Vec<f64>`, `Vec<f32>`, `Vec<i64>`, `Vec<i32>`
+  - Enum `Dtype` e `TypedArrayData` con metodi `get()`, `set()`, `len()`
+- **Costruttori stdlib**: `Float64([...])`, `Float32([...])`, `Int64([...])`, `Int32([...])
+- **Utilità**: `zeros(n)`, `zeros(n, dtype)`, `ones(n)`, `fill(n, val)`, `linspace(start, stop, n)`
+- `len()` e `typeof()` aggiornati per TypedArray
+- Stub nel typecheck e nell'interpreter tree-walking
+
+---
+
+
 
 ### Aggiunto
 - **Tipo `Dict`** nella VM (`Value::Dict(RcDict)`, `Vec<(Value, Value)>` con ordine inserimento)

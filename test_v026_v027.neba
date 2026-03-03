@@ -1,0 +1,319 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Neba — Test di verifica v0.2.6 e v0.2.7
+# v0.2.6: Native TypedArray (Float64, Int64, Int32, Float32)
+# v0.2.7: Indexing, slicing, aritmetica element-wise
+# ─────────────────────────────────────────────────────────────────────────────
+
+var passed = 0
+var failed = 0
+
+fn ok(label: Str)
+    passed += 1
+    println(f"  ✅ {label}")
+
+fn fail(label: Str, got: Str)
+    failed += 1
+    println(f"  ❌ {label} → got: {got}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v0.2.6 — COSTRUZIONE E TIPO
+# ─────────────────────────────────────────────────────────────────────────────
+println("\n── v0.2.6: Costruzione TypedArray ──")
+
+let f64a = Float64([1.0, 2.0, 3.0, 4.0, 5.0])
+if typeof(f64a) == "Float64Array"
+    ok("Float64() constructor")
+else
+    fail("Float64() constructor", typeof(f64a))
+
+let i64a = Int64([10, 20, 30])
+if typeof(i64a) == "Int64Array"
+    ok("Int64() constructor")
+else
+    fail("Int64() constructor", typeof(i64a))
+
+let i32a = Int32([1, 2, 3])
+if typeof(i32a) == "Int32Array"
+    ok("Int32() constructor")
+else
+    fail("Int32() constructor", typeof(i32a))
+
+let f32a = Float32([1.0, 2.0, 3.0])
+if typeof(f32a) == "Float32Array"
+    ok("Float32() constructor")
+else
+    fail("Float32() constructor", typeof(f32a))
+
+# len()
+if len(f64a) == 5
+    ok("len() su Float64Array")
+else
+    fail("len() su Float64Array", str(len(f64a)))
+
+# Costruttori di utilità
+let z = zeros(4)
+if typeof(z) == "Float64Array" and len(z) == 4 and z[0] == 0.0
+    ok("zeros(n) → Float64Array")
+else
+    fail("zeros(n)", typeof(z))
+
+let zi = zeros(3, "Int64")
+if typeof(zi) == "Int64Array" and zi[0] == 0
+    ok("zeros(n, dtype)")
+else
+    fail("zeros(n, dtype)", typeof(zi))
+
+let o = ones(3)
+if o[0] == 1.0 and o[2] == 1.0
+    ok("ones(n)")
+else
+    fail("ones(n)", str(o[0]))
+
+let fil = fill(5, 7)
+if fil[0] == 7 and fil[4] == 7
+    ok("fill(n, val) Int")
+else
+    fail("fill(n, val)", str(fil[0]))
+
+let ls = linspace(0.0, 10.0, 6)
+if ls[0] == 0.0 and ls[5] == 10.0 and len(ls) == 6
+    ok("linspace(start, stop, n)")
+else
+    fail("linspace", f"{ls[0]}..{ls[5]}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v0.2.7 — INDEXING E SLICING
+# ─────────────────────────────────────────────────────────────────────────────
+println("\n── v0.2.7: Indexing e Slicing ──")
+
+let arr = Float64([10.0, 20.0, 30.0, 40.0, 50.0])
+
+# Indice positivo
+if arr[0] == 10.0
+    ok("a[0] primo elemento")
+else
+    fail("a[0]", str(arr[0]))
+
+if arr[4] == 50.0
+    ok("a[4] ultimo elemento")
+else
+    fail("a[4]", str(arr[4]))
+
+# Indice negativo
+if arr[-1] == 50.0
+    ok("a[-1] indice negativo")
+else
+    fail("a[-1]", str(arr[-1]))
+
+if arr[-2] == 40.0
+    ok("a[-2] penultimo")
+else
+    fail("a[-2]", str(arr[-2]))
+
+# Scrittura in-place
+var muta = Int64([1, 2, 3, 4, 5])
+muta[2] = 99
+if muta[2] == 99
+    ok("a[i] = val scrittura")
+else
+    fail("a[i] = val", str(muta[2]))
+
+# Slicing con range
+let sliced = arr[1..4]
+if len(sliced) == 3
+    ok("a[1..4] lunghezza slice")
+else
+    fail("a[1..4] lunghezza", str(len(sliced)))
+
+if sliced[0] == 20.0 and sliced[2] == 40.0
+    ok("a[1..4] valori corretti")
+else
+    fail("a[1..4] valori", f"{sliced[0]}..{sliced[2]}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v0.2.7 — ARITMETICA ELEMENT-WISE
+# ─────────────────────────────────────────────────────────────────────────────
+println("\n── v0.2.7: Aritmetica element-wise ──")
+
+let a = Float64([1.0, 2.0, 3.0, 4.0])
+let b = Float64([10.0, 20.0, 30.0, 40.0])
+
+# Array + scalar
+let ap10 = a + 10.0
+if ap10[0] == 11.0 and ap10[3] == 14.0
+    ok("Array + scalar")
+else
+    fail("Array + scalar", str(ap10[0]))
+
+# scalar + Array (commutativo)
+let sp = 100.0 + a
+if sp[0] == 101.0
+    ok("scalar + Array")
+else
+    fail("scalar + Array", str(sp[0]))
+
+# Array - scalar
+let sub = b - 5.0
+if sub[0] == 5.0 and sub[3] == 35.0
+    ok("Array - scalar")
+else
+    fail("Array - scalar", str(sub[0]))
+
+# Array * scalar
+let mul = a * 3.0
+if mul[1] == 6.0
+    ok("Array * scalar")
+else
+    fail("Array * scalar", str(mul[1]))
+
+# Array / scalar
+let div = b / 2.0
+if div[1] == 10.0
+    ok("Array / scalar")
+else
+    fail("Array / scalar", str(div[1]))
+
+# Array + Array (element-wise)
+let apb = a + b
+if apb[0] == 11.0 and apb[3] == 44.0
+    ok("Array + Array element-wise")
+else
+    fail("Array + Array", str(apb[0]))
+
+# Array * Array (element-wise)
+let amb = a * b
+if amb[0] == 10.0 and amb[1] == 40.0
+    ok("Array * Array element-wise")
+else
+    fail("Array * Array", str(amb[0]))
+
+# Int array aritmetica
+let ia = Int64([1, 2, 3, 4])
+let ib = Int64([5, 6, 7, 8])
+let isum = ia + ib
+if isum[0] == 6 and isum[3] == 12
+    ok("Int64Array + Int64Array")
+else
+    fail("Int64Array + Int64Array", str(isum[0]))
+
+# Int + scalar Int
+let isca = ia * 10
+if isca[0] == 10 and isca[3] == 40
+    ok("Int64Array * Int scalar")
+else
+    fail("Int64Array * Int scalar", str(isca[0]))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v0.2.7 — FUNZIONI AGGREGATE
+# ─────────────────────────────────────────────────────────────────────────────
+println("\n── v0.2.7: Funzioni aggregate ──")
+
+let vals = Float64([1.0, 2.0, 3.0, 4.0, 5.0])
+
+# sum
+if sum(vals) == 15.0
+    ok("sum()")
+else
+    fail("sum()", str(sum(vals)))
+
+# mean
+if mean(vals) == 3.0
+    ok("mean()")
+else
+    fail("mean()", str(mean(vals)))
+
+# dot
+let x = Float64([1.0, 2.0, 3.0])
+let y = Float64([4.0, 5.0, 6.0])
+if dot(x, y) == 32.0
+    ok("dot()")
+else
+    fail("dot()", str(dot(x, y)))
+
+# min_elem / max_elem
+if min_elem(vals) == 1.0
+    ok("min_elem()")
+else
+    fail("min_elem()", str(min_elem(vals)))
+
+if max_elem(vals) == 5.0
+    ok("max_elem()")
+else
+    fail("max_elem()", str(max_elem(vals)))
+
+# sum su Int64
+let iv = Int64([10, 20, 30])
+if sum(iv) == 60
+    ok("sum() Int64Array")
+else
+    fail("sum() Int64Array", str(sum(iv)))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v0.2.7 — ITERAZIONE E TO_LIST
+# ─────────────────────────────────────────────────────────────────────────────
+println("\n── v0.2.7: Iterazione e conversione ──")
+
+# for loop su TypedArray
+var tot = 0.0
+for v in Float64([1.0, 2.0, 3.0, 4.0])
+    tot += v
+if tot == 10.0
+    ok("for loop su Float64Array")
+else
+    fail("for loop", str(tot))
+
+# for loop su Int64Array
+var itot = 0
+for v in Int64([5, 10, 15])
+    itot += v
+if itot == 30
+    ok("for loop su Int64Array")
+else
+    fail("for loop Int64", str(itot))
+
+# to_list converte in Array dinamico
+let lst = to_list(Int64([7, 8, 9]))
+if typeof(lst) == "Array" and lst[0] == 7
+    ok("to_list() TypedArray → Array")
+else
+    fail("to_list()", typeof(lst))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CASO REALISTICO: regressione lineare manuale
+# ─────────────────────────────────────────────────────────────────────────────
+println("\n── Caso realistico: regressione lineare ──")
+
+# y = 2*x + 1, con dati x=[0,1,2,3,4], y=[1,3,5,7,9]
+let xs = Float64([0.0, 1.0, 2.0, 3.0, 4.0])
+let ys = Float64([1.0, 3.0, 5.0, 7.0, 9.0])
+let n_pts = 5.0
+
+let sx  = sum(xs)
+let sy  = sum(ys)
+let sxy = dot(xs, ys)
+let sxx = dot(xs, xs)
+
+let m = (n_pts * sxy - sx * sy) / (n_pts * sxx - sx * sx)
+let q = (sy - m * sx) / n_pts
+
+# m deve essere ~2.0, q deve essere ~1.0
+if m == 2.0 and q == 1.0
+    ok("regressione lineare: m=2.0, q=1.0")
+else
+    fail("regressione lineare", f"m={m} q={q}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Risultati finali
+# ─────────────────────────────────────────────────────────────────────────────
+println(f"\n── Risultati: {passed} passati, {failed} falliti ──")
+if failed == 0
+    println("🎉 Tutto OK!")
+else
+    println("⚠️  Alcuni test falliti")

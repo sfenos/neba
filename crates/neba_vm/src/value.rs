@@ -11,8 +11,138 @@ pub type RcArray    = Rc<RefCell<Vec<Value>>>;
 pub type RcInstance = Rc<RefCell<Instance>>;
 pub type RcClosure  = Rc<Closure>;
 /// Dict: mappa chiave→valore con ordine di inserimento preservato.
-/// Usa Vec<(Value, Value)> per mantenere l'ordine (le chiavi sono tipicamente Str o Int).
 pub type RcDict     = Rc<RefCell<Vec<(Value, Value)>>>;
+
+// ── TypedArray (v0.2.6) ───────────────────────────────────────────────────
+
+/// Dtype di un TypedArray — determina la rappresentazione interna compatta.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Dtype {
+    Float64,
+    Float32,
+    Int64,
+    Int32,
+}
+
+impl Dtype {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Dtype::Float64 => "Float64",
+            Dtype::Float32 => "Float32",
+            Dtype::Int64   => "Int64",
+            Dtype::Int32   => "Int32",
+        }
+    }
+    pub fn array_type_name(&self) -> &'static str {
+        match self {
+            Dtype::Float64 => "Float64Array",
+            Dtype::Float32 => "Float32Array",
+            Dtype::Int64   => "Int64Array",
+            Dtype::Int32   => "Int32Array",
+        }
+    }
+}
+
+/// Contenuto compatto di un TypedArray — usa Vec<T> nativo per efficienza.
+#[derive(Debug, Clone)]
+pub enum TypedArrayData {
+    Float64(Vec<f64>),
+    Float32(Vec<f32>),
+    Int64(Vec<i64>),
+    Int32(Vec<i32>),
+}
+
+impl TypedArrayData {
+    pub fn dtype(&self) -> Dtype {
+        match self {
+            TypedArrayData::Float64(_) => Dtype::Float64,
+            TypedArrayData::Float32(_) => Dtype::Float32,
+            TypedArrayData::Int64(_)   => Dtype::Int64,
+            TypedArrayData::Int32(_)   => Dtype::Int32,
+        }
+    }
+    pub fn len(&self) -> usize {
+        match self {
+            TypedArrayData::Float64(v) => v.len(),
+            TypedArrayData::Float32(v) => v.len(),
+            TypedArrayData::Int64(v)   => v.len(),
+            TypedArrayData::Int32(v)   => v.len(),
+        }
+    }
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
+
+    /// Legge l'elemento all'indice i come Value.
+    pub fn get(&self, i: usize) -> Option<Value> {
+        match self {
+            TypedArrayData::Float64(v) => v.get(i).map(|&x| Value::Float(x)),
+            TypedArrayData::Float32(v) => v.get(i).map(|&x| Value::Float(x as f64)),
+            TypedArrayData::Int64(v)   => v.get(i).map(|&x| Value::Int(x)),
+            TypedArrayData::Int32(v)   => v.get(i).map(|&x| Value::Int(x as i64)),
+        }
+    }
+
+    /// Scrive il valore v all'indice i (conversione automatica al dtype).
+    pub fn set(&mut self, i: usize, v: Value) -> Result<(), String> {
+        match self {
+            TypedArrayData::Float64(arr) => {
+                let x = v.as_float().ok_or_else(|| format!("cannot store {} in Float64Array", v.type_name()))?;
+                if i < arr.len() { arr[i] = x; Ok(()) } else { Err(format!("index {} out of bounds", i)) }
+            }
+            TypedArrayData::Float32(arr) => {
+                let x = v.as_float().ok_or_else(|| format!("cannot store {} in Float32Array", v.type_name()))? as f32;
+                if i < arr.len() { arr[i] = x; Ok(()) } else { Err(format!("index {} out of bounds", i)) }
+            }
+            TypedArrayData::Int64(arr) => {
+                let x = match v { Value::Int(n) => n, Value::Float(f) => f as i64,
+                    _ => return Err(format!("cannot store {} in Int64Array", v.type_name())) };
+                if i < arr.len() { arr[i] = x; Ok(()) } else { Err(format!("index {} out of bounds", i)) }
+            }
+            TypedArrayData::Int32(arr) => {
+                let x = match v { Value::Int(n) => n as i32, Value::Float(f) => f as i32,
+                    _ => return Err(format!("cannot store {} in Int32Array", v.type_name())) };
+                if i < arr.len() { arr[i] = x; Ok(()) } else { Err(format!("index {} out of bounds", i)) }
+            }
+        }
+    }
+
+    /// Estrae gli elementi agli indici in `indices` come nuovo TypedArray (slicing).
+    pub fn slice_indices(&self, indices: &[i64], len: usize) -> Result<TypedArrayData, String> {
+        match self {
+            TypedArrayData::Float64(v) => {
+                let mut out = Vec::with_capacity(indices.len());
+                for &i in indices { out.push(v[resolve_idx(i, len)?]); }
+                Ok(TypedArrayData::Float64(out))
+            }
+            TypedArrayData::Float32(v) => {
+                let mut out = Vec::with_capacity(indices.len());
+                for &i in indices { out.push(v[resolve_idx(i, len)?]); }
+                Ok(TypedArrayData::Float32(out))
+            }
+            TypedArrayData::Int64(v) => {
+                let mut out = Vec::with_capacity(indices.len());
+                for &i in indices { out.push(v[resolve_idx(i, len)?]); }
+                Ok(TypedArrayData::Int64(out))
+            }
+            TypedArrayData::Int32(v) => {
+                let mut out = Vec::with_capacity(indices.len());
+                for &i in indices { out.push(v[resolve_idx(i, len)?]); }
+                Ok(TypedArrayData::Int32(out))
+            }
+        }
+    }
+}
+
+/// Risolve un indice (anche negativo) rispetto alla lunghezza dell'array.
+pub fn resolve_idx(i: i64, len: usize) -> Result<usize, String> {
+    let a = if i < 0 { len as i64 + i } else { i };
+    if a < 0 || a as usize >= len {
+        Err(format!("index {} out of bounds (len={})", i, len))
+    } else {
+        Ok(a as usize)
+    }
+}
+
+pub type RcTypedArray = Rc<RefCell<TypedArrayData>>;
 
 /// Closure = FnProto + upvalue catturati al momento della definizione.
 #[derive(Clone)]
@@ -67,6 +197,8 @@ pub enum Value {
     Str(Rc<String>),
     Array(RcArray),
     Dict(RcDict),
+    /// TypedArray compatto — Float64, Float32, Int64, Int32 (v0.2.6)
+    TypedArray(RcTypedArray),
     Closure(RcClosure),
     NativeFn(String, NativeFn),
 
@@ -97,6 +229,10 @@ impl fmt::Debug for Value {
             Value::Dict(d)      => {
                 let items: Vec<String> = d.borrow().iter().map(|(k,v)| format!("{:?}: {:?}", k, v)).collect();
                 write!(f, "Dict{{{}}}", items.join(", "))
+            }
+            Value::TypedArray(t) => {
+                let d = t.borrow();
+                write!(f, "{}[{}]", d.dtype().name(), d.len())
             }
             Value::Closure(c)   => write!(f, "Closure({})", c.proto.name),
             Value::NativeFn(n,_)=> write!(f, "NativeFn({})", n),
@@ -131,6 +267,14 @@ impl fmt::Display for Value {
                     .map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", items.join(", "))
             }
+            Value::TypedArray(t) => {
+                let d = t.borrow();
+                let dtype = d.dtype().name();
+                let items: Vec<String> = (0..d.len())
+                    .map(|i| d.get(i).unwrap().to_string())
+                    .collect();
+                write!(f, "{}[{}]", dtype, items.join(", "))
+            }
             Value::Closure(c) => write!(f, "<fn {}>", c.proto.name),
             Value::NativeFn(n, _) => write!(f, "<built-in {}>", n),
             Value::Some_(v)  => write!(f, "Some({})", v),
@@ -160,6 +304,8 @@ impl PartialEq for Value {
             (Value::Err_(a),  Value::Err_(b))  => a == b,
             (Value::Array(a), Value::Array(b)) => *a.borrow() == *b.borrow(),
             (Value::Dict(a),  Value::Dict(b))  => *a.borrow() == *b.borrow(),
+            // TypedArray: uguaglianza per identità (stesso Rc) — confronto elemento per elemento in futuro
+            (Value::TypedArray(a), Value::TypedArray(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -189,6 +335,7 @@ impl Value {
             Value::Some_(_) => true,
             Value::Array(a) => !a.borrow().is_empty(),
             Value::Dict(d)  => !d.borrow().is_empty(),
+            Value::TypedArray(t) => !t.borrow().is_empty(),
             _               => true,
         }
     }
@@ -202,6 +349,7 @@ impl Value {
             Value::Str(_)       => "Str",
             Value::Array(_)     => "Array",
             Value::Dict(_)      => "Dict",
+            Value::TypedArray(t) => t.borrow().dtype().array_type_name(),
             Value::Closure(_)   => "Function",
             Value::NativeFn(_,_)=> "NativeFunction",
             Value::Some_(_)     => "Some",
@@ -233,5 +381,10 @@ impl Value {
     /// Costruisce un Value::Dict da un Vec<(Value, Value)>
     pub fn dict(pairs: Vec<(Value, Value)>) -> Self {
         Value::Dict(Rc::new(RefCell::new(pairs)))
+    }
+
+    /// Costruisce un Value::TypedArray da TypedArrayData
+    pub fn typed_array(data: TypedArrayData) -> Self {
+        Value::TypedArray(Rc::new(RefCell::new(data)))
     }
 }

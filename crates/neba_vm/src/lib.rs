@@ -344,3 +344,185 @@ len(d)"#), Value::Int(1));
         assert_eq!(r(r#"join(["a","b","c"], "-")"#), Value::str("a-b-c"));
     }
 }
+
+#[cfg(test)]
+mod typed_array_tests {
+    use super::*;
+    use crate::value::{TypedArrayData};
+
+    fn r(src: &str) -> Value {
+        match run(src) { Ok(v) => v, Err(e) => panic!("VmError: {}", e) }
+    }
+    fn rerr(src: &str) -> String {
+        match run(src) { Ok(v) => panic!("expected error, got {:?}", v), Err(e) => e.to_string() }
+    }
+
+    // ── v0.2.6: costruzione e accesso ─────────────────────────────────────
+
+    #[test]
+    fn t_float64_constructor() {
+        let v = r("let a = Float64([1.0, 2.0, 3.0])\ntypeof(a)");
+        assert_eq!(v, Value::str("Float64Array"));
+    }
+
+    #[test]
+    fn t_int64_constructor() {
+        let v = r("let a = Int64([10, 20, 30])\ntypeof(a)");
+        assert_eq!(v, Value::str("Int64Array"));
+    }
+
+    #[test]
+    fn t_int32_constructor() {
+        let v = r("let a = Int32([1, 2, 3])\ntypeof(a)");
+        assert_eq!(v, Value::str("Int32Array"));
+    }
+
+    #[test]
+    fn t_float32_constructor() {
+        let v = r("let a = Float32([1.0, 2.0])\ntypeof(a)");
+        assert_eq!(v, Value::str("Float32Array"));
+    }
+
+    #[test]
+    fn t_typed_len() {
+        assert_eq!(r("len(Float64([1.0, 2.0, 3.0]))"), Value::Int(3));
+    }
+
+    #[test]
+    fn t_typed_index_read() {
+        assert_eq!(r("Float64([10.0, 20.0, 30.0])[1]"), Value::Float(20.0));
+    }
+
+    #[test]
+    fn t_typed_index_negative() {
+        assert_eq!(r("Int64([1, 2, 3])[-1]"), Value::Int(3));
+    }
+
+    #[test]
+    fn t_typed_index_write() {
+        assert_eq!(r("var a = Int64([1, 2, 3])\na[0] = 99\na[0]"), Value::Int(99));
+    }
+
+    #[test]
+    fn t_zeros_float64() {
+        assert_eq!(r("let z = zeros(4)\nlen(z)"), Value::Int(4));
+    }
+
+    #[test]
+    fn t_zeros_int64() {
+        assert_eq!(r(r#"let z = zeros(3, "Int64")
+typeof(z)"#), Value::str("Int64Array"));
+    }
+
+    #[test]
+    fn t_ones() {
+        assert_eq!(r("ones(3)[0]"), Value::Float(1.0));
+    }
+
+    #[test]
+    fn t_fill() {
+        assert_eq!(r("fill(5, 7)[2]"), Value::Int(7));
+    }
+
+    #[test]
+    fn t_linspace() {
+        assert_eq!(r("let a = linspace(0.0, 1.0, 3)\na[0]"), Value::Float(0.0));
+    }
+
+    #[test]
+    fn t_linspace_end() {
+        assert_eq!(r("let a = linspace(0.0, 1.0, 3)\na[2]"), Value::Float(1.0));
+    }
+
+    // ── v0.2.7: operazioni aritmetiche element-wise ───────────────────────
+
+    #[test]
+    fn t_add_scalar() {
+        assert_eq!(r("let a = Float64([1.0, 2.0, 3.0])\n(a + 10.0)[0]"), Value::Float(11.0));
+    }
+
+    #[test]
+    fn t_sub_scalar() {
+        assert_eq!(r("let a = Int64([10, 20, 30])\n(a - 5)[1]"), Value::Int(15));
+    }
+
+    #[test]
+    fn t_mul_scalar() {
+        assert_eq!(r("let a = Float64([1.0, 2.0, 3.0])\n(a * 2.0)[2]"), Value::Float(6.0));
+    }
+
+    #[test]
+    fn t_div_scalar() {
+        assert_eq!(r("let a = Float64([10.0, 20.0])\n(a / 2.0)[1]"), Value::Float(10.0));
+    }
+
+    #[test]
+    fn t_add_array_array() {
+        assert_eq!(r("let a = Int64([1, 2, 3])\nlet b = Int64([4, 5, 6])\n(a + b)[0]"), Value::Int(5));
+    }
+
+    #[test]
+    fn t_mul_array_array() {
+        assert_eq!(r("let a = Float64([2.0, 3.0])\nlet b = Float64([4.0, 5.0])\n(a * b)[1]"), Value::Float(15.0));
+    }
+
+    #[test]
+    fn t_scalar_lhs() {
+        assert_eq!(r("let a = Float64([1.0, 2.0, 3.0])\n(10.0 - a)[0]"), Value::Float(9.0));
+    }
+
+    // ── v0.2.7: operazioni aggregate ─────────────────────────────────────
+
+    #[test]
+    fn t_sum() {
+        assert_eq!(r("sum(Float64([1.0, 2.0, 3.0]))"), Value::Float(6.0));
+    }
+
+    #[test]
+    fn t_sum_int() {
+        assert_eq!(r("sum(Int64([10, 20, 30]))"), Value::Int(60));
+    }
+
+    #[test]
+    fn t_mean() {
+        assert_eq!(r("mean(Float64([0.0, 2.0, 4.0]))"), Value::Float(2.0));
+    }
+
+    #[test]
+    fn t_dot() {
+        assert_eq!(r("dot(Float64([1.0, 2.0, 3.0]), Float64([4.0, 5.0, 6.0]))"), Value::Float(32.0));
+    }
+
+    #[test]
+    fn t_min_elem() {
+        assert_eq!(r("min_elem(Float64([3.0, 1.0, 2.0]))"), Value::Float(1.0));
+    }
+
+    #[test]
+    fn t_max_elem() {
+        assert_eq!(r("max_elem(Int64([3, 1, 9, 2]))"), Value::Int(9));
+    }
+
+    // ── v0.2.7: slicing e iterazione ─────────────────────────────────────
+
+    #[test]
+    fn t_slice_range() {
+        assert_eq!(r("let a = Float64([10.0, 20.0, 30.0, 40.0])\nlet s = a[1..3]\nlen(s)"), Value::Int(2));
+    }
+
+    #[test]
+    fn t_slice_value() {
+        assert_eq!(r("let a = Float64([10.0, 20.0, 30.0, 40.0])\na[1..3][0]"), Value::Float(20.0));
+    }
+
+    #[test]
+    fn t_iteration() {
+        assert_eq!(r("var tot = 0\nfor x in Int64([1, 2, 3, 4])\n    tot += x\ntot"), Value::Int(10));
+    }
+
+    #[test]
+    fn t_to_list() {
+        let v = r("to_list(Int64([1, 2, 3]))[0]");
+        assert_eq!(v, Value::Int(1));
+    }
+}

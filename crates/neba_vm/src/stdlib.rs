@@ -38,6 +38,8 @@ pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
     reg!("sort",     neba_sort);
     reg!("reverse",  neba_reverse);
     reg!("join",     neba_join);
+    // ── TypedArray (v0.2.6) ───────────────────────────────────────────────
+    register_typed_array_globals(globals);
 }
 
 fn neba_print(args: &[Value]) -> Result<Value, String> {
@@ -57,9 +59,10 @@ fn neba_input(args: &[Value]) -> Result<Value, String> {
 }
 fn neba_len(args: &[Value]) -> Result<Value, String> {
     match args.first() {
-        Some(Value::Array(a)) => Ok(Value::Int(a.borrow().len() as i64)),
-        Some(Value::Str(s))   => Ok(Value::Int(s.chars().count() as i64)),
-        Some(Value::Dict(d))  => Ok(Value::Int(d.borrow().len() as i64)),
+        Some(Value::Array(a))     => Ok(Value::Int(a.borrow().len() as i64)),
+        Some(Value::Str(s))       => Ok(Value::Int(s.chars().count() as i64)),
+        Some(Value::Dict(d))      => Ok(Value::Int(d.borrow().len() as i64)),
+        Some(Value::TypedArray(t))=> Ok(Value::Int(t.borrow().len() as i64)),
         Some(v) => Err(format!("len() not supported for {}", v.type_name())),
         None    => Err("len() requires 1 argument".into()),
     }
@@ -301,5 +304,269 @@ fn neba_join(args: &[Value]) -> Result<Value, String> {
             Ok(Value::str(parts.join("")))
         }
         _ => Err("join(array, sep?) requires Array and optional Str separator".into()),
+    }
+}
+
+// ── TypedArray functions (v0.2.6 / v0.2.7) ───────────────────────────────
+
+use crate::value::{TypedArrayData, Dtype};
+
+/// Registra le funzioni TypedArray nei globals (chiamata da register_globals)
+pub fn register_typed_array_globals(globals: &mut std::collections::HashMap<String, (Value, bool)>) {
+    macro_rules! reg {
+        ($name:expr, $fn:expr) => {
+            globals.insert($name.to_string(), (Value::NativeFn($name.to_string(), $fn), false));
+        };
+    }
+    // Costruttori
+    reg!("Float64",   ta_float64);
+    reg!("Float32",   ta_float32);
+    reg!("Int64",     ta_int64);
+    reg!("Int32",     ta_int32);
+    // Costruttori di utilità
+    reg!("zeros",     ta_zeros);
+    reg!("ones",      ta_ones);
+    reg!("fill",      ta_fill);
+    reg!("linspace",  ta_linspace);
+    // Operazioni
+    reg!("sum",       ta_sum);
+    reg!("mean",      ta_mean);
+    reg!("dot",       ta_dot);
+    reg!("min_elem",  ta_min_elem);
+    reg!("max_elem",  ta_max_elem);
+    reg!("to_list",   ta_to_list);
+}
+
+// ── Costruttori ──────────────────────────────────────────────────────────
+
+/// Float64([1.0, 2.0, 3.0]) → Float64Array
+fn ta_float64(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(a)) => {
+            let v: Result<Vec<f64>, _> = a.borrow().iter()
+                .map(|x| x.as_float().ok_or_else(|| format!("Float64: cannot convert {} to Float64", x.type_name())))
+                .collect();
+            Ok(Value::typed_array(TypedArrayData::Float64(v?)))
+        }
+        Some(v) => Err(format!("Float64() expects Array, got {}", v.type_name())),
+        None => Err("Float64() requires 1 argument".into()),
+    }
+}
+
+/// Float32([1.0, 2.0]) → Float32Array
+fn ta_float32(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(a)) => {
+            let v: Result<Vec<f32>, _> = a.borrow().iter()
+                .map(|x| x.as_float().map(|f| f as f32).ok_or_else(|| format!("Float32: cannot convert {}", x.type_name())))
+                .collect();
+            Ok(Value::typed_array(TypedArrayData::Float32(v?)))
+        }
+        Some(v) => Err(format!("Float32() expects Array, got {}", v.type_name())),
+        None => Err("Float32() requires 1 argument".into()),
+    }
+}
+
+/// Int64([1, 2, 3]) → Int64Array
+fn ta_int64(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(a)) => {
+            let v: Result<Vec<i64>, _> = a.borrow().iter()
+                .map(|x| match x {
+                    Value::Int(n) => Ok(*n),
+                    Value::Float(f) => Ok(*f as i64),
+                    _ => Err(format!("Int64: cannot convert {}", x.type_name())),
+                })
+                .collect();
+            Ok(Value::typed_array(TypedArrayData::Int64(v?)))
+        }
+        Some(v) => Err(format!("Int64() expects Array, got {}", v.type_name())),
+        None => Err("Int64() requires 1 argument".into()),
+    }
+}
+
+/// Int32([1, 2, 3]) → Int32Array
+fn ta_int32(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(a)) => {
+            let v: Result<Vec<i32>, _> = a.borrow().iter()
+                .map(|x| match x {
+                    Value::Int(n) => Ok(*n as i32),
+                    Value::Float(f) => Ok(*f as i32),
+                    _ => Err(format!("Int32: cannot convert {}", x.type_name())),
+                })
+                .collect();
+            Ok(Value::typed_array(TypedArrayData::Int32(v?)))
+        }
+        Some(v) => Err(format!("Int32() expects Array, got {}", v.type_name())),
+        None => Err("Int32() requires 1 argument".into()),
+    }
+}
+
+// ── Costruttori di utilità ────────────────────────────────────────────────
+
+/// zeros(n) → Float64Array di zeri; zeros(n, "Int64") → Int64Array
+fn ta_zeros(args: &[Value]) -> Result<Value, String> {
+    let (n, dtype) = parse_size_dtype(args, "Float64")?;
+    Ok(match dtype.as_str() {
+        "Float64" => Value::typed_array(TypedArrayData::Float64(vec![0.0f64; n])),
+        "Float32" => Value::typed_array(TypedArrayData::Float32(vec![0.0f32; n])),
+        "Int64"   => Value::typed_array(TypedArrayData::Int64(vec![0i64; n])),
+        "Int32"   => Value::typed_array(TypedArrayData::Int32(vec![0i32; n])),
+        d => return Err(format!("zeros: unknown dtype '{}'", d)),
+    })
+}
+
+/// ones(n) → Float64Array di uni; ones(n, "Int64") → Int64Array
+fn ta_ones(args: &[Value]) -> Result<Value, String> {
+    let (n, dtype) = parse_size_dtype(args, "Float64")?;
+    Ok(match dtype.as_str() {
+        "Float64" => Value::typed_array(TypedArrayData::Float64(vec![1.0f64; n])),
+        "Float32" => Value::typed_array(TypedArrayData::Float32(vec![1.0f32; n])),
+        "Int64"   => Value::typed_array(TypedArrayData::Int64(vec![1i64; n])),
+        "Int32"   => Value::typed_array(TypedArrayData::Int32(vec![1i32; n])),
+        d => return Err(format!("ones: unknown dtype '{}'", d)),
+    })
+}
+
+/// fill(n, value) → Float64Array riempito con value (o IntArray se value è Int)
+fn ta_fill(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Int(n), Value::Float(v)] =>
+            Ok(Value::typed_array(TypedArrayData::Float64(vec![*v; *n as usize]))),
+        [Value::Int(n), Value::Int(v)] =>
+            Ok(Value::typed_array(TypedArrayData::Int64(vec![*v; *n as usize]))),
+        _ => Err("fill(n: Int, value) requires Int size and numeric fill value".into()),
+    }
+}
+
+/// linspace(start, stop, n) → Float64Array di n valori equispaziati
+fn ta_linspace(args: &[Value]) -> Result<Value, String> {
+    let (start, stop, n) = match args {
+        [s, e, Value::Int(n)] => {
+            let s = s.as_float().ok_or("linspace: start must be numeric")?;
+            let e = e.as_float().ok_or("linspace: stop must be numeric")?;
+            (s, e, *n as usize)
+        }
+        _ => return Err("linspace(start, stop, n) requires 3 arguments".into()),
+    };
+    if n == 0 { return Ok(Value::typed_array(TypedArrayData::Float64(vec![]))); }
+    if n == 1 { return Ok(Value::typed_array(TypedArrayData::Float64(vec![start]))); }
+    let step = (stop - start) / (n - 1) as f64;
+    let v: Vec<f64> = (0..n).map(|i| start + i as f64 * step).collect();
+    Ok(Value::typed_array(TypedArrayData::Float64(v)))
+}
+
+// ── Operazioni ────────────────────────────────────────────────────────────
+
+/// sum(ta) → valore scalare (somma di tutti gli elementi)
+fn ta_sum(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::TypedArray(t)) => {
+            let d = t.borrow();
+            Ok(match &*d {
+                TypedArrayData::Float64(v) => Value::Float(v.iter().sum()),
+                TypedArrayData::Float32(v) => Value::Float(v.iter().map(|&x| x as f64).sum()),
+                TypedArrayData::Int64(v)   => Value::Int(v.iter().sum()),
+                TypedArrayData::Int32(v)   => Value::Int(v.iter().map(|&x| x as i64).sum()),
+            })
+        }
+        Some(Value::Array(a)) => {
+            // Fallback per Array normale
+            let mut total = 0.0f64;
+            for v in a.borrow().iter() {
+                total += v.as_float().ok_or_else(|| format!("sum: non-numeric element {}", v.type_name()))?;
+            }
+            Ok(Value::Float(total))
+        }
+        _ => Err("sum() requires TypedArray or Array".into()),
+    }
+}
+
+/// mean(ta) → Float64 (media)
+fn ta_mean(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::TypedArray(t)) => {
+            let d = t.borrow();
+            let n = d.len();
+            if n == 0 { return Err("mean() of empty array".into()); }
+            let s: f64 = (0..n).map(|i| d.get(i).unwrap().as_float().unwrap()).sum();
+            Ok(Value::Float(s / n as f64))
+        }
+        _ => Err("mean() requires TypedArray".into()),
+    }
+}
+
+/// dot(a, b) → prodotto scalare (sum of a[i]*b[i])
+fn ta_dot(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::TypedArray(a), Value::TypedArray(b)] => {
+            let da = a.borrow();
+            let db = b.borrow();
+            if da.len() != db.len() {
+                return Err(format!("dot: size mismatch {} vs {}", da.len(), db.len()));
+            }
+            let s: f64 = (0..da.len())
+                .map(|i| da.get(i).unwrap().as_float().unwrap() * db.get(i).unwrap().as_float().unwrap())
+                .sum();
+            Ok(Value::Float(s))
+        }
+        _ => Err("dot(a, b) requires two TypedArrays".into()),
+    }
+}
+
+/// min_elem(ta) → valore minimo
+fn ta_min_elem(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::TypedArray(t)) => {
+            let d = t.borrow();
+            if d.is_empty() { return Err("min_elem() of empty array".into()); }
+            let mut m = d.get(0).unwrap().as_float().unwrap();
+            for i in 1..d.len() { let x = d.get(i).unwrap().as_float().unwrap(); if x < m { m = x; } }
+            match &*d {
+                TypedArrayData::Int64(_) | TypedArrayData::Int32(_) => Ok(Value::Int(m as i64)),
+                _ => Ok(Value::Float(m)),
+            }
+        }
+        _ => Err("min_elem() requires TypedArray".into()),
+    }
+}
+
+/// max_elem(ta) → valore massimo
+fn ta_max_elem(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::TypedArray(t)) => {
+            let d = t.borrow();
+            if d.is_empty() { return Err("max_elem() of empty array".into()); }
+            let mut m = d.get(0).unwrap().as_float().unwrap();
+            for i in 1..d.len() { let x = d.get(i).unwrap().as_float().unwrap(); if x > m { m = x; } }
+            match &*d {
+                TypedArrayData::Int64(_) | TypedArrayData::Int32(_) => Ok(Value::Int(m as i64)),
+                _ => Ok(Value::Float(m)),
+            }
+        }
+        _ => Err("max_elem() requires TypedArray".into()),
+    }
+}
+
+/// to_list(ta) → Array dinamico con gli stessi valori
+fn ta_to_list(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::TypedArray(t)) => {
+            let d = t.borrow();
+            let v: Vec<Value> = (0..d.len()).map(|i| d.get(i).unwrap()).collect();
+            Ok(Value::array(v))
+        }
+        _ => Err("to_list() requires TypedArray".into()),
+    }
+}
+
+// ── Helper interni ────────────────────────────────────────────────────────
+
+fn parse_size_dtype(args: &[Value], default_dtype: &str) -> Result<(usize, String), String> {
+    match args {
+        [Value::Int(n)] => Ok((*n as usize, default_dtype.to_string())),
+        [Value::Int(n), Value::Str(dtype)] => Ok((*n as usize, dtype.as_ref().clone())),
+        _ => Err(format!("expected (n: Int) or (n: Int, dtype: Str)")),
     }
 }
