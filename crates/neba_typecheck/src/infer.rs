@@ -265,6 +265,7 @@ pub fn infer_expr(expr: &Expr, env: &mut TypeEnv, errors: &mut Vec<TypeError>) -
             }
             result_ty
         }
+        ExprKind::Lambda { .. } => Type::Unknown,
     }
 }
 

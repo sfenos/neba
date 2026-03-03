@@ -4,7 +4,7 @@ Ultimo aggiornamento: 2026-02-26
 
 ---
 
-## Stato attuale: v0.2.11 ✅
+## Stato attuale: v0.2.13 ✅
 
 ---
 
@@ -26,7 +26,8 @@ Ultimo aggiornamento: 2026-02-26
 | v0.2.0 | Bytecode VM: compiler AST→bytecode, stack machine, opcode set completo | 2026-02-25 |
 | v0.2.1 | Type checker + inferenza di tipi | 2026-02-25 |
 | v0.2.2 | Classi + trait dispatch (interpreter) | 2026-02-25 |
-| v0.2.3 | Classes VM: definizione, istanziazione, metodi, self, __init__ | 2026-02-26 |
+| v0.2.12 | HOF: map, filter, reduce + lambda expressions + match multi-line | 2026-03-03 |
+| v0.2.13 | Benchmark suite v1 | 2026-03-03 |
 
 ---
 
@@ -77,7 +78,8 @@ Ultimo aggiornamento: 2026-02-26
 | v0.2.9 ✅ | Mutable upvalue fix: `Rc<RefCell<Value>>` — closure counter/accumulatore funzionanti, mutazioni persistono tra chiamate |
 | v0.2.10 ✅ | Error handling: `?` operator (Propagate), metodi `.is_ok()`, `.is_err()`, `.unwrap()`, `.unwrap_or()` su Result e Option |
 | v0.2.11 ✅ | Standard library v0: math, io, string, collections |
-| v0.2.12 | Benchmark suite v1 + documentation v1 |
+| v0.2.12 ✅ | HOF: map, filter, reduce + match multi-line body |
+| v0.2.13 ✅ | Benchmark suite v1 + aggiornamento results_v0 → v1 |
 
 **Benchmark target (v0.2.10):** 5× speedup su fibonacci rispetto v0.1. Array sum di 1M floats in <5ms.
 

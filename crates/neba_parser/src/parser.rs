@@ -470,6 +470,28 @@ impl Parser {
                 let e = self.parse_expr(Prec::None);
                 Node::new(ExprKind::Spawn(Box::new(e)), span)
             }
+            TokenKind::Fn => {
+                // Lambda anonima: fn(params) => expr  oppure  fn(params):\n    body
+                self.advance(); // consuma 'fn'
+                self.match_tok(&TokenKind::LParen);
+                let params = self.parse_params();
+                self.match_tok(&TokenKind::RParen);
+                let body = if self.match_tok(&TokenKind::FatArrow) {
+                    // fn(x) => expr  — corpo singolo come return implicito
+                    let ret_span = self.current_span();
+                    let expr = self.parse_expr(Prec::None);
+                    let ret_stmt = Node::new(
+                        StmtKind::Return(Some(expr)),
+                        ret_span,
+                    );
+                    vec![ret_stmt]
+                } else {
+                    // fn(x):\n    body
+                    self.expect_newline();
+                    self.parse_block()
+                };
+                Node::new(ExprKind::Lambda { params, body }, span)
+            }
             TokenKind::Await => {
                 self.advance();
                 let e = self.parse_expr(Prec::None);
@@ -506,6 +528,10 @@ impl Parser {
             TokenKind::LParen => {
                 self.advance();
                 let (args, kwargs) = self.parse_call_args();
+                // skip newlines/dedent prima della ')' di chiusura (chiamate multi-riga)
+                while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent) {
+                    self.advance();
+                }
                 self.match_tok(&TokenKind::RParen);
                 Node::new(ExprKind::Call { callee: Box::new(left), args, kwargs }, span)
             }
@@ -577,7 +603,17 @@ impl Parser {
 
     fn parse_call_args(&mut self) -> (Vec<Expr>, Vec<(String, Expr)>) {
         let mut args = Vec::new(); let mut kwargs = Vec::new();
+        // Skip newlines/indent/dedent per supportare chiamate multi-riga
+        while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent) {
+            self.advance();
+        }
         while !matches!(self.peek_kind(), TokenKind::RParen | TokenKind::Eof) {
+            // Skip newlines/dedent prima di ogni argomento
+            while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent) {
+                self.advance();
+            }
+            // Dopo lo skip potremmo essere arrivati alla ')'
+            if matches!(self.peek_kind(), TokenKind::RParen | TokenKind::Eof) { break; }
             let is_kwarg = matches!(self.peek_kind(), TokenKind::Identifier(_))
                 && self.tokens.get(self.pos + 1).map_or(false, |t| t.kind == TokenKind::Equal);
             if is_kwarg {
@@ -591,6 +627,10 @@ impl Parser {
                 args.push(self.parse_expr(Prec::None));
             }
             if !self.match_tok(&TokenKind::Comma) { break; }
+            // Skip newlines dopo la virgola
+            while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent) {
+                self.advance();
+            }
         }
         (args, kwargs)
     }
@@ -680,8 +720,20 @@ impl Parser {
             if matches!(self.peek_kind(), TokenKind::Dedent | TokenKind::Eof | TokenKind::Newline) { break; }
             let pattern = self.parse_pattern();
             let body = if self.match_tok(&TokenKind::FatArrow) {
-                let stmt = self.parse_stmt();
-                vec![stmt]
+                // Se dopo => c'è un newline seguito da un indent, è un blocco multi-linea
+                if matches!(self.peek_kind(), TokenKind::Newline) {
+                    self.advance(); // consuma il newline
+                    if matches!(self.peek_kind(), TokenKind::Indent) {
+                        self.parse_block()
+                    } else {
+                        // Newline senza indent: corpo vuoto / pass
+                        Vec::new()
+                    }
+                } else {
+                    // Singola espressione/statement sulla stessa riga
+                    let stmt = self.parse_stmt();
+                    vec![stmt]
+                }
             } else {
                 self.expect_newline();
                 self.parse_block()

@@ -45,6 +45,12 @@ pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
     globals.insert("string".to_string(),      (make_string_module(),      false));
     globals.insert("io".to_string(),          (make_io_module(),          false));
     globals.insert("collections".to_string(), (make_collections_module(), false));
+    // ── HOF: map / filter / reduce (v0.2.12) ─────────────────────────────
+    // Il body è un placeholder — vengono intercettati in Op::Call dalla VM
+    // prima del dispatch normale, quindi questa fn non viene mai eseguita.
+    reg!("map",    hof_map_stub);
+    reg!("filter", hof_filter_stub);
+    reg!("reduce", hof_reduce_stub);
 }
 
 fn neba_print(args: &[Value]) -> Result<Value, String> {
@@ -1332,4 +1338,15 @@ fn col_transpose(args: &[Value]) -> Result<Value, String> {
         }
         _ => Err("collections.transpose(matrix) requires Array of Arrays".into()),
     }
+}
+
+// ── HOF stubs (mai eseguiti — intercettati in Op::Call dalla VM) ──────────
+fn hof_map_stub(_: &[Value]) -> Result<Value, String> {
+    Err("map: should have been intercepted by VM HOF dispatch".into())
+}
+fn hof_filter_stub(_: &[Value]) -> Result<Value, String> {
+    Err("filter: should have been intercepted by VM HOF dispatch".into())
+}
+fn hof_reduce_stub(_: &[Value]) -> Result<Value, String> {
+    Err("reduce: should have been intercepted by VM HOF dispatch".into())
 }

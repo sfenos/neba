@@ -453,6 +453,74 @@ impl Vm {
                 }
                 let fn_idx = self.stack.len() - argc - 1;
                 let callee = self.stack[fn_idx].clone();
+
+                // ── HOF: map / filter / reduce ────────────────────────────
+                if let Value::NativeFn(ref name, _) = callee {
+                    match name.as_str() {
+                        "map" => {
+                            if argc != 2 {
+                                return Err(VmError::Generic("map(array, fn) requires 2 arguments".into()));
+                            }
+                            let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
+                            let (arr, cb) = (args[0].clone(), args[1].clone());
+                            let items = match &arr {
+                                Value::Array(a) => a.borrow().clone(),
+                                _ => return Err(VmError::TypeError("map: first argument must be Array".into())),
+                            };
+                            let mut result = Vec::with_capacity(items.len());
+                            for item in items {
+                                result.push(self.call_value_sync(cb.clone(), vec![item])?);
+                            }
+                            push!(Value::array(result));
+                            return Ok(None);
+                        }
+                        "filter" => {
+                            if argc != 2 {
+                                return Err(VmError::Generic("filter(array, fn) requires 2 arguments".into()));
+                            }
+                            let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
+                            let (arr, cb) = (args[0].clone(), args[1].clone());
+                            let items = match &arr {
+                                Value::Array(a) => a.borrow().clone(),
+                                _ => return Err(VmError::TypeError("filter: first argument must be Array".into())),
+                            };
+                            let mut result = Vec::new();
+                            for item in items {
+                                let keep = self.call_value_sync(cb.clone(), vec![item.clone()])?;
+                                if keep.is_truthy() { result.push(item); }
+                            }
+                            push!(Value::array(result));
+                            return Ok(None);
+                        }
+                        "reduce" => {
+                            if argc != 2 && argc != 3 {
+                                return Err(VmError::Generic("reduce(array, fn) or reduce(array, fn, initial) requires 2–3 arguments".into()));
+                            }
+                            let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
+                            let (arr, cb) = (args[0].clone(), args[1].clone());
+                            let items = match &arr {
+                                Value::Array(a) => a.borrow().clone(),
+                                _ => return Err(VmError::TypeError("reduce: first argument must be Array".into())),
+                            };
+                            let (mut acc, start_idx) = if argc == 3 {
+                                (args[2].clone(), 0)
+                            } else {
+                                if items.is_empty() {
+                                    return Err(VmError::Generic("reduce() of empty array with no initial value".into()));
+                                }
+                                (items[0].clone(), 1)
+                            };
+                            for item in &items[start_idx..] {
+                                acc = self.call_value_sync(cb.clone(), vec![acc, item.clone()])?;
+                            }
+                            push!(acc);
+                            return Ok(None);
+                        }
+                        _ => {}
+                    }
+                }
+                // ─────────────────────────────────────────────────────────
+
                 match callee {
                     Value::NativeFn(_, f) => {
                         let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
@@ -1186,6 +1254,53 @@ impl Vm {
                 _             => Ok(false),
             },
             _ => Err(VmError::TypeError(format!("'in' on {}", haystack.type_name()))),
+        }
+    }
+
+    /// Invoca un Value callable (Closure o NativeFn) in modo sincrono,
+    /// eseguendo un mini run-loop annidato per le Closure.
+    /// Usato internamente da map/filter/reduce HOF.
+    pub fn call_value_sync(&mut self, callee: Value, args: Vec<Value>) -> VmResult<Value> {
+        match callee {
+            Value::NativeFn(_, f) => {
+                f(&args).map_err(VmError::Generic)
+            }
+            Value::Closure(c) => {
+                let depth = self.frames.len();
+                let base_idx = self.stack.len();
+                // Placeholder per il callee (verrà azzerato dal frame)
+                self.stack.push(Value::None);
+                for a in args { self.stack.push(a); }
+                let proto = &c.proto;
+                let new_base = base_idx + 1;
+                let frame = CallFrame {
+                    chunk:    Rc::new(proto.chunk.clone()),
+                    ip:       0,
+                    base:     new_base,
+                    name:     proto.name.clone(),
+                    upvalues: c.upvalues.clone(),
+                };
+                self.frames.push(frame);
+                // Mini run-loop: gira finché torniamo alla profondità originale
+                loop {
+                    match self.step()? {
+                        Some(v) => {
+                            // Return esplicito — rimuovi il placeholder
+                            self.stack.truncate(base_idx);
+                            return Ok(v);
+                        }
+                        None => {
+                            if self.frames.len() <= depth {
+                                // Frame terminato via ReturnNil
+                                let result = self.stack.pop().unwrap_or(Value::None);
+                                self.stack.truncate(base_idx);
+                                return Ok(result);
+                            }
+                        }
+                    }
+                }
+            }
+            other => Err(VmError::NotCallable(other.type_name().to_string())),
         }
     }
 }

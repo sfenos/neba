@@ -553,6 +553,11 @@ impl Compiler {
                 self.compile_expr(inner)?;
             }
 
+            ExprKind::Lambda { params, body } => {
+                // Compila come funzione anonima — stessa logica di compile_fn_def
+                self.compile_fn_def("<lambda>", params, body, false, line)?;
+            }
+
             ExprKind::Error => {
                 return Err(VmError::CompileError("AST error node".into()));
             }

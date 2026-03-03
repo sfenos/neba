@@ -1,0 +1,455 @@
+# ─────────────────────────────────────────────────────────────────
+# Neba — Benchmark Suite v1
+# Aggiornamento della v0 (v0.1.10): estende i benchmark classici
+# con le feature introdotte in v0.2.x:
+#   - TypedArray (v0.2.6/v0.2.7)
+#   - stdlib math / string / collections (v0.2.11)
+#   - HOF: map, filter, reduce + lambda (v0.2.12)
+#
+# Esegui con:
+#   cargo run --bin neba -- benchmarks/bench_v1.neba
+#
+# Ogni benchmark misura il tempo in millisecondi.
+# Confronta i benchmark 1-9 con results_v0.md per misurare
+# il miglioramento della VM bytecode vs tree-walking interpreter.
+# ─────────────────────────────────────────────────────────────────
+
+fn ms(start: Float, end: Float) -> Float
+    return (end - start) * 1000.0
+
+fn bench(label: Str, t: Float)
+    println(f"  {label}: {t} ms")
+
+println("Neba Benchmark Suite v1")
+println("Versione: v0.2.13 — Bytecode VM + Stdlib + HOF")
+println("═══════════════════════════════════════════════")
+
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE A — Benchmark classici (confronto con v0)
+# ─────────────────────────────────────────────────────────────────
+println("\n── Sezione A: Benchmark classici (confronto con v0) ──")
+
+
+# [A1] Integer arithmetic — 10 milioni di operazioni
+println("\n[A1] Integer arithmetic (10M ops)")
+
+var t0 = clock()
+var n = 0
+var i = 0
+while i < 10000000
+    n = n + i * 2 - i // 3 + i % 7
+    i += 1
+var t1 = clock()
+bench("while + int ops", ms(t0, t1))
+
+
+# [A2] Float arithmetic — 5 milioni di operazioni
+println("\n[A2] Float arithmetic (5M ops)")
+
+t0 = clock()
+var f = 0.0
+i = 0
+while i < 5000000
+    f = f + 1.1 * 2.2 - 0.5
+    i += 1
+t1 = clock()
+bench("while + float ops", ms(t0, t1))
+
+
+# [A3] For-range loop — 1 milione di iterazioni
+println("\n[A3] For-range loop (1M iters)")
+
+t0 = clock()
+var loop_sum = 0
+for j in 0..1000000
+    loop_sum += j
+t1 = clock()
+bench("for-range sum", ms(t0, t1))
+
+
+# [A4] Ricorsione — Fibonacci(30)
+println("\n[A4] Recursion — fib(30)")
+
+fn fib(n: Int) -> Int
+    if n <= 1
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+t0 = clock()
+let fib30 = fib(30)
+t1 = clock()
+bench(f"fib(30) = {fib30}", ms(t0, t1))
+
+
+# [A5] Closure — 500k chiamate
+println("\n[A5] Closure calls (500k)")
+
+fn make_counter(start: Int)
+    var c = start
+    fn next() -> Int
+        c += 1
+        return c
+    return next
+
+let counter = make_counter(0)
+t0 = clock()
+i = 0
+while i < 500000
+    counter()
+    i += 1
+t1 = clock()
+bench("closure call", ms(t0, t1))
+
+
+# [A6] Array push/pop — 100k operazioni
+println("\n[A6] Array push/pop (100k)")
+
+t0 = clock()
+var arr = []
+i = 0
+while i < 100000
+    push(arr, i)
+    i += 1
+i = 0
+while i < 100000
+    pop(arr)
+    i += 1
+t1 = clock()
+bench("push + pop", ms(t0, t1))
+
+
+# [A7] String concatenation — 10k
+println("\n[A7] String concat (10k)")
+
+t0 = clock()
+var s = ""
+i = 0
+while i < 10000
+    s = s + "x"
+    i += 1
+t1 = clock()
+bench(f"concat len={len(s)}", ms(t0, t1))
+
+
+# [A8] Higher-order fn — 1M chiamate manuali
+println("\n[A8] Higher-order fn manual (1M)")
+
+fn applica(g, x: Int) -> Int
+    return g(x)
+
+fn doppio(x: Int) -> Int
+    return x * 2
+
+t0 = clock()
+var acc = 0
+i = 0
+while i < 1000000
+    acc += applica(doppio, i)
+    i += 1
+t1 = clock()
+bench("higher-order call", ms(t0, t1))
+
+
+# [A9] Classi — istanziazione + metodo (100k)
+println("\n[A9] Class instantiation + method (100k)")
+
+class Vec2
+    x: Float = 0.0
+    y: Float = 0.0
+
+    fn __init__(self, x: Float, y: Float)
+        self.x = x
+        self.y = y
+
+    fn lunghezza(self) -> Float
+        return (self.x ** 2 + self.y ** 2) ** 0.5
+
+t0 = clock()
+var tot = 0.0
+i = 0
+while i < 100000
+    let v = Vec2(float(i), float(i + 1))
+    tot += v.lunghezza()
+    i += 1
+t1 = clock()
+bench("Vec2 ctor+method", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE B — TypedArray (v0.2.6/v0.2.7)
+# ─────────────────────────────────────────────────────────────────
+println("\n── Sezione B: TypedArray ──")
+
+
+# [B1] TypedArray Float64 sum — 1M elementi
+println("\n[B1] TypedArray Float64 sum (1M elements)")
+
+t0 = clock()
+let ta = ones(1000000)
+let ta_sum = sum(ta)
+t1 = clock()
+bench(f"ones(1M) + sum = {ta_sum}", ms(t0, t1))
+
+
+# [B2] TypedArray dot product — 100k elementi
+println("\n[B2] TypedArray dot product (100k)")
+
+let a_vec = ones(100000)
+let b_vec = fill(100000, 2.0)
+t0 = clock()
+i = 0
+while i < 100
+    dot(a_vec, b_vec)
+    i += 1
+t1 = clock()
+bench("dot(100k) × 100 iter", ms(t0, t1))
+
+
+# [B3] linspace + mean
+println("\n[B3] linspace(1M) + mean")
+
+t0 = clock()
+let ls = linspace(0.0, 1.0, 1000000)
+let ls_mean = mean(ls)
+t1 = clock()
+bench(f"linspace(1M) + mean ≈ {ls_mean}", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE C — Stdlib math (v0.2.11)
+# ─────────────────────────────────────────────────────────────────
+println("\n── Sezione C: Stdlib math ──")
+
+
+# [C1] Trig loop — 500k chiamate sin/cos
+println("\n[C1] math.sin + math.cos (500k)")
+
+t0 = clock()
+var trig_sum = 0.0
+i = 0
+while i < 500000
+    trig_sum += math.sin(float(i) * 0.001) + math.cos(float(i) * 0.001)
+    i += 1
+t1 = clock()
+bench("sin+cos loop", ms(t0, t1))
+
+
+# [C2] math.sqrt + math.log — 1M chiamate
+println("\n[C2] math.sqrt + math.log (1M)")
+
+t0 = clock()
+var math_sum = 0.0
+i = 1
+while i <= 1000000
+    math_sum += math.sqrt(float(i)) + math.log(float(i))
+    i += 1
+t1 = clock()
+bench("sqrt+log loop", ms(t0, t1))
+
+
+# [C3] math.floor/ceil/round — 2M chiamate
+println("\n[C3] math.floor + math.ceil (2M)")
+
+t0 = clock()
+var round_sum = 0
+i = 0
+while i < 1000000
+    round_sum += math.floor(float(i) * 1.7) + math.ceil(float(i) * 0.3)
+    i += 1
+t1 = clock()
+bench("floor+ceil loop", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE D — Stdlib string (v0.2.11)
+# ─────────────────────────────────────────────────────────────────
+println("\n── Sezione D: Stdlib string ──")
+
+
+# [D1] string.split + join — 50k operazioni
+println("\n[D1] string.split + join (50k)")
+
+var test_str = "the quick brown fox jumps over the lazy dog"
+t0 = clock()
+i = 0
+while i < 50000
+    var parts = string.split(test_str)
+    var rejoined = join(parts, " ")
+    i += 1
+t1 = clock()
+bench("split+join 50k", ms(t0, t1))
+
+
+# [D2] string.replace + upper — 100k
+println("\n[D2] string.replace + upper (100k)")
+
+var base_str = "hello world neba lang"
+t0 = clock()
+i = 0
+while i < 100000
+    var r = string.replace(base_str, "neba", "awesome")
+    var u = string.upper(r)
+    i += 1
+t1 = clock()
+bench("replace+upper 100k", ms(t0, t1))
+
+
+# [D3] string.find — 200k ricerche
+println("\n[D3] string.find (200k)")
+
+var hay = "the quick brown fox jumps over the lazy dog"
+t0 = clock()
+i = 0
+while i < 200000
+    string.find(hay, "fox")
+    string.find(hay, "lazy")
+    i += 1
+t1 = clock()
+bench("find 200k×2", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE E — HOF: map, filter, reduce (v0.2.12)
+# ─────────────────────────────────────────────────────────────────
+println("\n── Sezione E: HOF — map, filter, reduce ──")
+
+
+# [E1] map — 100k elementi
+println("\n[E1] map double (100k)")
+
+var big_arr = range(100000)
+t0 = clock()
+var mapped = map(big_arr, fn(x) => x * 2)
+t1 = clock()
+bench(f"map×2 on 100k → len={len(mapped)}", ms(t0, t1))
+
+
+# [E2] filter — 100k elementi, ~50% passa
+println("\n[E2] filter evens (100k)")
+
+t0 = clock()
+var filtered = filter(big_arr, fn(x) => x % 2 == 0)
+t1 = clock()
+bench(f"filter evens → {len(filtered)} items", ms(t0, t1))
+
+
+# [E3] reduce — sum su 100k
+println("\n[E3] reduce sum (100k)")
+
+t0 = clock()
+var reduced = reduce(big_arr, fn(acc, x) => acc + x, 0)
+t1 = clock()
+bench(f"reduce sum = {reduced}", ms(t0, t1))
+
+
+# [E4] pipeline map+filter+reduce — 100k
+println("\n[E4] map+filter+reduce pipeline (100k)")
+
+t0 = clock()
+var pipeline_result = reduce(
+    map(filter(big_arr, fn(x) => x % 3 == 0), fn(x) => x * x),
+    fn(acc, x) => acc + x,
+    0
+)
+t1 = clock()
+bench(f"pipeline result = {pipeline_result}", ms(t0, t1))
+
+
+# [E5] HOF vs loop manuale — confronto equo su 10k
+println("\n[E5] HOF vs loop manuale (10k, confronto)")
+
+var arr_10k = range(10000)
+
+t0 = clock()
+i = 0
+while i < 100
+    var loop_sum = 0
+    var j = 0
+    while j < 10000
+        if arr_10k[j] % 2 == 0
+            loop_sum += arr_10k[j] * arr_10k[j]
+        j += 1
+    i += 1
+t1 = clock()
+bench("loop manuale ×100", ms(t0, t1))
+
+t0 = clock()
+i = 0
+while i < 100
+    reduce(
+        map(filter(arr_10k, fn(x) => x % 2 == 0), fn(x) => x * x),
+        fn(acc, x) => acc + x,
+        0
+    )
+    i += 1
+t1 = clock()
+bench("HOF pipeline ×100", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE F — Collections (v0.2.11)
+# ─────────────────────────────────────────────────────────────────
+println("\n── Sezione F: Collections ──")
+
+
+# [F1] collections.sorted — 10k elementi
+println("\n[F1] collections.sorted (10k)")
+
+fn build_arr(n: Int)
+    var a = []
+    var k = n
+    while k > 0
+        push(a, k % 997)
+        k -= 1
+    return a
+
+var unsorted_arr = build_arr(10000)
+t0 = clock()
+i = 0
+while i < 10
+    collections.sorted(unsorted_arr)
+    i += 1
+t1 = clock()
+bench("sorted(10k) ×10", ms(t0, t1))
+
+
+# [F2] collections.zip + enumerate — 50k
+println("\n[F2] collections.zip + enumerate (50k)")
+
+var arr_a = range(50000)
+var arr_b = range(50000)
+t0 = clock()
+var zipped = collections.zip(arr_a, arr_b)
+t1 = clock()
+bench(f"zip(50k) → {len(zipped)} pairs", ms(t0, t1))
+
+t0 = clock()
+var enumed = collections.enumerate(arr_a)
+t1 = clock()
+bench(f"enumerate(50k) → {len(enumed)} pairs", ms(t0, t1))
+
+
+# [F3] collections.flatten — 10k array da 10 elementi ciascuno
+println("\n[F3] collections.flatten (10k×10)")
+
+var nested = []
+i = 0
+while i < 10000
+    push(nested, [i, i+1, i+2, i+3, i+4, i+5, i+6, i+7, i+8, i+9])
+    i += 1
+t0 = clock()
+var flat = collections.flatten(nested)
+t1 = clock()
+bench(f"flatten(10k×10) → {len(flat)} items", ms(t0, t1))
+
+
+# ─────────────────────────────────────────────────────────────────
+# Sommario
+# ─────────────────────────────────────────────────────────────────
+println("\n═══════════════════════════════════════════════")
+println("Benchmark Suite v1 completata.")
+println("Salva l'output come benchmarks/results_v1.md")
+println("Confronta Sezione A con results_v0.md per misurare")
+println("il miglioramento VM bytecode vs tree-walking.")
+println("═══════════════════════════════════════════════")

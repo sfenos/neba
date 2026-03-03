@@ -60,6 +60,11 @@ pub enum ExprKind {
     Err(Box<Expr>),
     /// Operatore `?`: propaga Err early-return, unwrappa Ok.
     Try(Box<Expr>),
+    /// Funzione anonima: `fn(x, y) => expr` oppure blocco indentato
+    Lambda {
+        params: Vec<Param>,
+        body:   Vec<Stmt>,
+    },
     Error,
 }
 

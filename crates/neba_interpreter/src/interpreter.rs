@@ -349,6 +349,10 @@ impl Interpreter {
                 }
             }
 
+            ExprKind::Lambda { .. } => Err(RuntimeError::Generic {
+                message: "Lambda expressions require the bytecode VM (use `cargo run --bin neba`)".to_string(),
+            }),
+
             ExprKind::Error => Err(RuntimeError::Generic { message: "AST error node".to_string() }),
         }
     }

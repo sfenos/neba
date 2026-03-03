@@ -1,0 +1,301 @@
+# ─────────────────────────────────────────────────────────────────
+# Neba — Test suite v0.2.12
+# HOF: map, filter, reduce + match multi-line
+# ─────────────────────────────────────────────────────────────────
+
+var passed = 0
+var failed = 0
+
+fn ok(label: Str)
+    passed += 1
+    println(f"  ✅ {label}")
+
+fn fail(label: Str, got: Str)
+    failed += 1
+    println(f"  ❌ {label} → got: {got}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAP
+# ═══════════════════════════════════════════════════════════════
+println("\n── map ──")
+
+var doubled = map([1, 2, 3, 4], fn(x) => x * 2)
+if len(doubled) == 4 and doubled[0] == 2 and doubled[3] == 8
+    ok("map: double [1,2,3,4]")
+else
+    fail("map: double", str(doubled[0]))
+
+var squares = map([1, 2, 3, 4, 5], fn(x) => x * x)
+if squares[4] == 25
+    ok("map: squares")
+else
+    fail("map: squares", str(squares[4]))
+
+var strs = map([1, 2, 3], fn(x) => str(x))
+if strs[0] == "1" and strs[2] == "3"
+    ok("map: int → str")
+else
+    fail("map: int → str", strs[0])
+
+# map con funzione nominata
+fn add_ten(x: Int) -> Int
+    return x + 10
+
+var added = map([1, 2, 3], add_ten)
+if added[0] == 11 and added[2] == 13
+    ok("map: named function")
+else
+    fail("map: named function", str(added[0]))
+
+# map di array vuoto
+var empty_map = map([], fn(x) => x)
+if len(empty_map) == 0
+    ok("map: empty array → empty array")
+else
+    fail("map: empty array", str(len(empty_map)))
+
+# map con closure che cattura variabile esterna
+var offset = 100
+var with_offset = map([1, 2, 3], fn(x) => x + offset)
+if with_offset[0] == 101 and with_offset[2] == 103
+    ok("map: closure captures outer variable")
+else
+    fail("map: closure capture", str(with_offset[0]))
+
+
+# ═══════════════════════════════════════════════════════════════
+# FILTER
+# ═══════════════════════════════════════════════════════════════
+println("\n── filter ──")
+
+var evens = filter([1, 2, 3, 4, 5, 6], fn(x) => x % 2 == 0)
+if len(evens) == 3 and evens[0] == 2 and evens[2] == 6
+    ok("filter: evens from [1..6]")
+else
+    fail("filter: evens", str(len(evens)))
+
+var positives = filter([-3, -1, 0, 2, 5], fn(x) => x > 0)
+if len(positives) == 2 and positives[0] == 2
+    ok("filter: positives")
+else
+    fail("filter: positives", str(len(positives)))
+
+# filter con funzione nominata
+fn is_long(s: Str) -> Bool
+    return len(s) > 3
+
+var long_words = filter(["hi", "hello", "neba", "ok", "world"], is_long)
+if len(long_words) == 3
+    ok("filter: strings longer than 3 chars")
+else
+    fail("filter: long strings", str(len(long_words)))
+
+# filter tutti → lista vuota
+var none_pass = filter([1, 2, 3], fn(x) => x > 100)
+if len(none_pass) == 0
+    ok("filter: none pass → empty array")
+else
+    fail("filter: none pass", str(len(none_pass)))
+
+# filter tutti passano
+var all_pass = filter([1, 2, 3], fn(x) => x > 0)
+if len(all_pass) == 3
+    ok("filter: all pass")
+else
+    fail("filter: all pass", str(len(all_pass)))
+
+# filter array vuoto
+var empty_filter = filter([], fn(x) => true)
+if len(empty_filter) == 0
+    ok("filter: empty array → empty array")
+else
+    fail("filter: empty array", str(len(empty_filter)))
+
+
+# ═══════════════════════════════════════════════════════════════
+# REDUCE
+# ═══════════════════════════════════════════════════════════════
+println("\n── reduce ──")
+
+var total = reduce([1, 2, 3, 4, 5], fn(acc, x) => acc + x)
+if total == 15
+    ok("reduce: sum [1..5] == 15")
+else
+    fail("reduce: sum", str(total))
+
+var product = reduce([1, 2, 3, 4, 5], fn(acc, x) => acc * x)
+if product == 120
+    ok("reduce: product [1..5] == 120")
+else
+    fail("reduce: product", str(product))
+
+# reduce con valore iniziale
+var with_init = reduce([1, 2, 3], fn(acc, x) => acc + x, 10)
+if with_init == 16
+    ok("reduce: sum with initial=10 → 16")
+else
+    fail("reduce: with initial", str(with_init))
+
+# reduce: trovare il massimo
+fn take_max(acc: Int, x: Int) -> Int
+    if x > acc
+        return x
+    return acc
+
+var max_val = reduce([3, 1, 4, 1, 5, 9, 2, 6], take_max)
+if max_val == 9
+    ok("reduce: max via reduce == 9")
+else
+    fail("reduce: max", str(max_val))
+
+# reduce: concatena stringhe
+var concat_str = reduce(["Neba", " ", "lang"], fn(acc, x) => acc + x)
+if concat_str == "Neba lang"
+    ok("reduce: string concat")
+else
+    fail("reduce: string concat", concat_str)
+
+# reduce: array singolo elemento senza initial
+var single = reduce([42], fn(acc, x) => acc + x)
+if single == 42
+    ok("reduce: single element == 42")
+else
+    fail("reduce: single element", str(single))
+
+# reduce con initial e lista vuota
+var empty_reduce = reduce([], fn(acc, x) => acc + x, 0)
+if empty_reduce == 0
+    ok("reduce: empty array with initial=0 → 0")
+else
+    fail("reduce: empty with initial", str(empty_reduce))
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAP + FILTER + REDUCE COMBINATI
+# ═══════════════════════════════════════════════════════════════
+println("\n── HOF combinati ──")
+
+# Somma dei quadrati dei numeri pari
+var nums = [1, 2, 3, 4, 5, 6]
+var even_squares_sum = reduce(
+    map(filter(nums, fn(x) => x % 2 == 0), fn(x) => x * x),
+    fn(acc, x) => acc + x
+)
+if even_squares_sum == 56
+    ok("filter+map+reduce: sum of squares of evens == 56")
+else
+    fail("filter+map+reduce", str(even_squares_sum))
+
+# Parole più lunghe di 4 lettere, in maiuscolo
+var words = ["ciao", "neba", "hello", "ok", "world", "rust"]
+var long_upper = map(
+    filter(words, fn(w) => len(w) > 4),
+    fn(w) => string.upper(w)
+)
+if len(long_upper) == 2 and long_upper[0] == "HELLO" and long_upper[1] == "WORLD"
+    ok("filter+map: long words uppercased")
+else
+    fail("filter+map: long words", str(len(long_upper)))
+
+
+# ═══════════════════════════════════════════════════════════════
+# MATCH MULTI-LINE
+# ═══════════════════════════════════════════════════════════════
+println("\n── match: corpo multi-linea ──")
+
+fn classifica(n: Int) -> Str
+    match n
+        case 0 =>
+            return "zero"
+        case 1 =>
+            var label = "uno"
+            return label
+        case _ =>
+            if n < 0
+                return "negativo"
+            else
+                return "positivo"
+
+if classifica(0) == "zero"
+    ok("match multi-line: case 0 → 'zero'")
+else
+    fail("match multi-line: case 0", classifica(0))
+
+if classifica(1) == "uno"
+    ok("match multi-line: case 1 con var locale")
+else
+    fail("match multi-line: case 1", classifica(1))
+
+if classifica(5) == "positivo"
+    ok("match multi-line: case _ con if/else → 'positivo'")
+else
+    fail("match multi-line: positivo", classifica(5))
+
+if classifica(-3) == "negativo"
+    ok("match multi-line: case _ con if/else → 'negativo'")
+else
+    fail("match multi-line: negativo", classifica(-3))
+
+# Match su Option con corpo multi-linea
+fn descrivi_option(v: Option[Int]) -> Str
+    match v
+        case Some(n) =>
+            var msg = f"trovato: {n}"
+            if n > 10
+                msg = f"grande: {n}"
+            return msg
+        case None =>
+            return "assente"
+
+if descrivi_option(Some(5)) == "trovato: 5"
+    ok("match multi-line: Some(5) → 'trovato: 5'")
+else
+    fail("match multi-line: Some(5)", descrivi_option(Some(5)))
+
+if descrivi_option(Some(42)) == "grande: 42"
+    ok("match multi-line: Some(42) → 'grande: 42'")
+else
+    fail("match multi-line: Some(42)", descrivi_option(Some(42)))
+
+if descrivi_option(None) == "assente"
+    ok("match multi-line: None → 'assente'")
+else
+    fail("match multi-line: None", descrivi_option(None))
+
+# Match multi-line con loop dentro il case
+fn somma_fino(n: Int) -> Int
+    match n
+        case 0 =>
+            return 0
+        case _ =>
+            var acc = 0
+            var i = 1
+            while i <= n
+                acc += i
+                i += 1
+            return acc
+
+if somma_fino(0) == 0
+    ok("match multi-line: loop in case _ (n=0)")
+else
+    fail("match multi-line: loop n=0", str(somma_fino(0)))
+
+if somma_fino(5) == 15
+    ok("match multi-line: loop in case _ (n=5) == 15")
+else
+    fail("match multi-line: loop n=5", str(somma_fino(5)))
+
+
+# ═══════════════════════════════════════════════════════════════
+# RIEPILOGO
+# ═══════════════════════════════════════════════════════════════
+println("")
+println("══════════════════════════════════════════")
+println(f"  Risultati v0.2.12: {passed} ✅  {failed} ❌")
+println("══════════════════════════════════════════")
+
+if failed == 0
+    println("  🎉 Tutti i test superati!")
+else
+    println(f"  ⚠️  {failed} test falliti")

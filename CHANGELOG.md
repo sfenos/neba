@@ -5,7 +5,50 @@ Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
 ---
 
-## [0.2.11] — 2026-03-03
+## [0.2.13] — 2026-03-03
+
+### Aggiunto
+
+**Benchmark Suite v1** (`benchmarks/bench_v1.neba` + `benchmarks/results_v1.md`)
+
+Aggiornamento della suite v0 (v0.1.10) — estende i 9 benchmark classici con 6 nuove sezioni che esercitano le feature introdotte in v0.2.x:
+
+- **Sezione A** (benchmark A1–A9): identici alla v0 — permettono il confronto diretto tree-walking interpreter (v0) vs bytecode VM (v1)
+- **Sezione B** (TypedArray): `ones(1M) + sum`, `dot(100k) ×100`, `linspace(1M) + mean` — misura il throughput della VM su storage compatto
+- **Sezione C** (stdlib math): loop su `sin+cos`, `sqrt+log`, `floor+ceil` — 500k–2M chiamate; misura il costo del dispatch Dict+NativeFn
+- **Sezione D** (stdlib string): `split+join` 50k, `replace+upper` 100k, `find` 200k — misura le operazioni su `Rc<String>`
+- **Sezione E** (HOF): `map`/`filter`/`reduce` su 100k elementi, pipeline completa, **confronto HOF vs loop manuale** (E5) per quantificare l'overhead di `call_value_sync`
+- **Sezione F** (collections): `sorted` 10k×10, `zip`/`enumerate` 50k, `flatten` 10k×10
+
+`results_v1.md` è un template precompilato con i valori v0 già inseriti nella colonna di confronto.
+
+---
+
+
+
+### Aggiunto
+
+**HOF: `map`, `filter`, `reduce`**
+- `map(array, fn)` → Array — applica `fn` a ogni elemento, restituisce nuovo array
+- `filter(array, fn)` → Array — mantiene gli elementi per cui `fn` restituisce truthy
+- `reduce(array, fn)` → Value — piega l'array con accumulatore, primo elemento come valore iniziale
+- `reduce(array, fn, initial)` → Value — versione con valore iniziale esplicito
+- Funzionano con lambda inline (`fn(x) => expr`), funzioni nominate, e closure che catturano variabili esterne
+- Combinabili: `reduce(map(filter(...), ...), ...)`
+
+**Architettura HOF:** le HOF richiedono callback nel VM, ma `NativeFn` è `fn(&[Value])` senza accesso alla VM. Soluzione: `call_value_sync` — un mini run-loop annidato che esegue una Closure sincrona all'interno del frame corrente. `map`/`filter`/`reduce` vengono intercettati in `Op::Call` prima del dispatch normale (i `NativeFn` registrati in stdlib sono placeholder che non vengono mai eseguiti).
+
+**Match multi-linea: corpo indentato dopo `=>`**
+- Prima: `case pattern => singola_espressione` (solo)
+- Ora: se dopo `=>` c'è un newline+indent, il parser legge un blocco completo (if/else, while, variabili locali, return, ecc.)
+- Fix in `parse_match_expr` del parser: detect newline post-`=>` e dispatch a `parse_block()`
+
+### Note
+- `call_value_sync` non ha limite di step — i loop infiniti dentro le HOF non vengono rilevati. Sarà affrontato in futuro col refactor del step counter condiviso.
+
+---
+
+
 
 ### Aggiunto
 
