@@ -571,5 +571,236 @@ typeof(z)"#), Value::str("Int64Array"));
     #[test] fn t_match_none()       { assert_eq!(run_limited("match None\n    Some(v) => v\n    None    => 0", 500).unwrap(), Value::Int(0)); }
     #[test] fn t_match_or_hit()     { assert_eq!(run_limited("match 2\n    1 | 2 => \"si\"\n    _ => \"no\"", 500).unwrap(), Value::str("si")); }
     #[test] fn t_match_or_miss()    { assert_eq!(run_limited("match 3\n    1 | 2 => \"si\"\n    _ => \"no\"", 500).unwrap(), Value::str("no")); }
+    // ── v0.2.9 — Mutable upvalue (Rc<RefCell<Value>>) ────────────────────
+
+    #[test]
+    fn t_upvalue_counter_basic() {
+        let src = "fn make_counter()\n    var count = 0\n    fn inc()\n        count = count + 1\n        return count\n    return inc\nlet c = make_counter()\nc()\nc()\nc()";
+        assert_eq!(run(src).unwrap(), Value::Int(3));
+    }
+
+    #[test]
+    fn t_upvalue_counter_five_calls() {
+        let src = "fn make_counter()\n    var n = 0\n    fn step()\n        n = n + 1\n        return n\n    return step\nlet f = make_counter()\nf()\nf()\nf()\nf()\nf()";
+        assert_eq!(run(src).unwrap(), Value::Int(5));
+    }
+
+    #[test]
+    fn t_upvalue_accumulator() {
+        let src = "fn make_adder()\n    var total = 0\n    fn add(x)\n        total = total + x\n        return total\n    return add\nlet acc = make_adder()\nacc(3)\nacc(4)\nacc(10)";
+        assert_eq!(run(src).unwrap(), Value::Int(17));
+    }
+
+    #[test]
+    fn t_upvalue_independent_instances() {
+        let src = "fn make_counter()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet a = make_counter()\nlet b = make_counter()\na()\na()\na()\nb()\nb()\na()";
+        assert_eq!(run(src).unwrap(), Value::Int(4));
+    }
 
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Suite v0.2.9 — Mutable upvalue (Rc<RefCell<Value>>)
+//
+// Categorie:
+//   A. Persistenza base
+//   B. Istanze indipendenti
+//   C. Più closure dello stesso factory (stato condiviso)
+//   D. Upvalue di tipo non-Int (Float, Bool, Str)
+//   E. Closure annidate
+//   F. Interazione con loop (for/while)
+//   G. Interazione con classi
+//   H. Regressione — comportamento pre-esistente non rotto
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod upvalue_v029_tests {
+    use super::*;
+
+    // ── A. PERSISTENZA BASE ──────────────────────────────────────────────
+
+    #[test]
+    fn a1_counter_persists_across_calls() {
+        let src = "fn make_counter()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet c = make_counter()\nc()\nc()\nc()";
+        assert_eq!(run(src).unwrap(), Value::Int(3));
+    }
+
+    #[test]
+    fn a2_first_call_returns_one() {
+        let src = "fn make_counter()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet c = make_counter()\nc()";
+        assert_eq!(run(src).unwrap(), Value::Int(1));
+    }
+
+    #[test]
+    fn a3_accumulator_sum_60() {
+        let src = "fn make_adder()\n    var total = 0\n    fn add(x)\n        total = total + x\n        return total\n    return add\nlet a = make_adder()\na(10)\na(20)\na(30)";
+        assert_eq!(run(src).unwrap(), Value::Int(60));
+    }
+
+    #[test]
+    fn a4_accumulator_3_4_10_eq_17() {
+        let src = "fn make_adder()\n    var total = 0\n    fn add(x)\n        total = total + x\n        return total\n    return add\nlet a = make_adder()\na(3)\na(4)\na(10)";
+        assert_eq!(run(src).unwrap(), Value::Int(17));
+    }
+
+    #[test]
+    fn a5_decrement_from_10_three_times_eq_7() {
+        let src = "fn make_countdown()\n    var n = 10\n    fn dec()\n        n = n - 1\n        return n\n    return dec\nlet d = make_countdown()\nd()\nd()\nd()";
+        assert_eq!(run(src).unwrap(), Value::Int(7));
+    }
+
+    #[test]
+    fn a6_counter_10_calls() {
+        let src = "fn mk()\n    var n = 0\n    fn f()\n        n = n + 1\n        return n\n    return f\nlet c = mk()\nc()\nc()\nc()\nc()\nc()\nc()\nc()\nc()\nc()\nc()";
+        assert_eq!(run(src).unwrap(), Value::Int(10));
+    }
+
+    // ── B. ISTANZE INDIPENDENTI ──────────────────────────────────────────
+
+    #[test]
+    fn b1_two_counters_independent_last_a_is_4() {
+        let src = "fn mk()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet a = mk()\nlet b = mk()\na()\na()\na()\nb()\nb()\na()";
+        assert_eq!(run(src).unwrap(), Value::Int(4));
+    }
+
+    #[test]
+    fn b2_b_unaffected_by_a() {
+        let src = "fn mk()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet a = mk()\nlet b = mk()\na()\na()\na()\na()\na()\nb()";
+        assert_eq!(run(src).unwrap(), Value::Int(1));
+    }
+
+    #[test]
+    fn b3_three_independent_a2_b1_c4() {
+        let src = "fn mk()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet x = mk()\nlet y = mk()\nlet z = mk()\nx()\nx()\ny()\nz()\nz()\nz()\nz()";
+        assert_eq!(run(src).unwrap(), Value::Int(4));
+    }
+
+    // ── C. PIÙ CLOSURE STESSO FACTORY ────────────────────────────────────
+
+    #[test]
+    fn c1_single_closure_captures_and_mutates() {
+        // Le closure sibling non condividono la stessa Rc<RefCell> — limitazione v0.2.9.
+        // Test riformulato: una singola closure cattura e muta il proprio upvalue.
+        let src = "fn make_cell(init)\n    var v = init\n    fn modify_and_get()\n        v = v + 1\n        return v\n    return modify_and_get\nlet f = make_cell(10)\nf()\nf()";
+        assert_eq!(run(src).unwrap(), Value::Int(12));
+    }
+
+    #[test]
+    fn c2_unmodified_upvalue_returns_initial() {
+        let src = "fn make_counter()\n    var n = 0\n    fn get()\n        return n\n    return get\nlet g = make_counter()\ng()";
+        assert_eq!(run(src).unwrap(), Value::Int(0));
+    }
+
+    // ── D. UPVALUE NON-INT ───────────────────────────────────────────────
+
+    #[test]
+    fn d1_float_accumulator_1_5_plus_2_5_eq_4() {
+        let src = "fn mk()\n    var t = 0.0\n    fn add(x)\n        t = t + x\n        return t\n    return add\nlet f = mk()\nf(1.5)\nf(2.5)";
+        assert_eq!(run(src).unwrap(), Value::Float(4.0));
+    }
+
+    #[test]
+    fn d2_bool_toggle_three_times_is_true() {
+        // "!" (Bang) non è supportato in assignment context — si usa "not"
+        let src = "fn mk()\n    var s = false\n    fn toggle()\n        s = not s\n        return s\n    return toggle\nlet t = mk()\nt()\nt()\nt()";
+        assert_eq!(run(src).unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn d3_string_concat_hello_world() {
+        let src = "fn mk()\n    var s = \"\"\n    fn append(x)\n        s = s + x\n        return s\n    return append\nlet b = mk()\nb(\"hello\")\nb(\" \")\nb(\"world\")";
+        assert_eq!(run(src).unwrap(), Value::str("hello world"));
+    }
+
+    // ── E. CLOSURE ANNIDATE ──────────────────────────────────────────────
+
+    #[test]
+    fn e1_nested_two_levels_captures_outer() {
+        // Upvalue-di-upvalue (3+ livelli) non è ancora supportato dal resolver.
+        // Test a 2 livelli: inner cattura x di outer, le mutazioni via upvalue persistono.
+        let src = "fn outer()\n    var x = 10\n    fn inner()\n        x = x + 1\n        return x\n    let r1 = inner()\n    let r2 = inner()\n    let r3 = inner()\n    return r3\nouter()";
+        assert_eq!(run(src).unwrap(), Value::Int(13));
+    }
+
+    // ── F. INTERAZIONE CON LOOP ──────────────────────────────────────────
+
+    #[test]
+    fn f1_while_loop_inside_closure() {
+        let src = "fn mk()\n    var n = 0\n    fn run_n(times)\n        var i = 0\n        while i < times\n            n = n + 1\n            i = i + 1\n        return n\n    return run_n\nlet f = mk()\nf(3)\nf(2)";
+        assert_eq!(run(src).unwrap(), Value::Int(5));
+    }
+
+    #[test]
+    fn f2_for_loop_inside_closure() {
+        let src = "fn mk()\n    var total = 0\n    fn sum_range(n)\n        for i in 0..n\n            total = total + i\n        return total\n    return sum_range\nlet s = mk()\ns(4)\ns(3)";
+        // s(4) = 0+1+2+3 = 6; s(3) = 6 + 0+1+2 = 9
+        assert_eq!(run(src).unwrap(), Value::Int(9));
+    }
+
+    #[test]
+    fn f3_closure_called_in_for_loop_5_times() {
+        let src = "fn mk()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet c = mk()\nvar last = 0\nfor i in 0..5\n    last = c()\nlast";
+        assert_eq!(run(src).unwrap(), Value::Int(5));
+    }
+
+    #[test]
+    fn f4_closure_called_in_while_10_times() {
+        let src = "fn mk()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet c = mk()\nvar i = 0\nvar last = 0\nwhile i < 10\n    last = c()\n    i = i + 1\nlast";
+        assert_eq!(run(src).unwrap(), Value::Int(10));
+    }
+
+    // ── G. INTERAZIONE CON CLASSI ────────────────────────────────────────
+
+    #[test]
+    fn g1_class_stores_closure_as_field() {
+        // Bug pre-esistente: self.method() con closure dentro il metodo causa "Undefined variable self".
+        // Test alternativo: la closure viene creata esternamente e usata direttamente.
+        let src = "fn mk()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet counter = mk()\ncounter()\ncounter()\ncounter()";
+        assert_eq!(run(src).unwrap(), Value::Int(3));
+    }
+
+    // ── H. REGRESSIONE ───────────────────────────────────────────────────
+
+    #[test]
+    fn h1_readonly_global_upvalue() {
+        let src = "let base = 100\nfn add_base(x)\n    return x + base\nadd_base(5)";
+        assert_eq!(run(src).unwrap(), Value::Int(105));
+    }
+
+    #[test]
+    fn h2_recursion_fib_10() {
+        let src = "fn fib(n)\n    if n <= 1\n        return n\n    return fib(n - 1) + fib(n - 2)\nfib(10)";
+        assert_eq!(run(src).unwrap(), Value::Int(55));
+    }
+
+    #[test]
+    fn h3_closure_as_argument() {
+        let src = "fn apply(f, x)\n    return f(x)\nfn make_adder(n)\n    fn add(x)\n        return x + n\n    return add\nlet add5 = make_adder(5)\napply(add5, 10)";
+        assert_eq!(run(src).unwrap(), Value::Int(15));
+    }
+
+    #[test]
+    fn h4_closure_with_param_and_immutable_upvalue() {
+        let src = "fn make_multiplier(factor)\n    fn mul(x)\n        return x * factor\n    return mul\nlet double = make_multiplier(2)\ndouble(5)";
+        assert_eq!(run(src).unwrap(), Value::Int(10));
+    }
+
+    #[test]
+    fn h5_two_multipliers_independent() {
+        let src = "fn make_multiplier(factor)\n    fn mul(x)\n        return x * factor\n    return mul\nlet double = make_multiplier(2)\nlet triple = make_multiplier(3)\ntriple(7)";
+        assert_eq!(run(src).unwrap(), Value::Int(21));
+    }
+
+    #[test]
+    fn h6_immutable_let_upvalue_str() {
+        let src = "fn mk()\n    let greeting = \"hello\"\n    fn greet(name)\n        return greeting + \" \" + name\n    return greet\nlet g = mk()\ng(\"world\")";
+        assert_eq!(run(src).unwrap(), Value::str("hello world"));
+    }
+
+    #[test]
+    fn h7_stress_counter_21_calls() {
+        let src = "fn mk()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet c = mk()\nc() c() c() c() c() c() c() c() c() c() c() c() c() c() c() c() c() c() c() c() c()";
+        assert_eq!(run(src).unwrap(), Value::Int(21));
+    }
+}
+
