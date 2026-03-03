@@ -5,7 +5,30 @@ Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
 ---
 
-## [0.2.4] — Traits: definizione, implementazione e dispatch — 2026-03-03
+## [0.2.5] — Lists e Dicts (dynamic, GC-managed) — 2026-03-03
+
+### Aggiunto
+- **Tipo `Dict`** nella VM (`Value::Dict(RcDict)`, `Vec<(Value, Value)>` con ordine inserimento)
+  - Letterale `{"chiave": valore, ...}` e `{}` (dict vuoto)
+  - Accesso con `d["key"]`, assegnazione `d["key"] = val`
+  - Chiavi di qualsiasi tipo (`Str`, `Int`, ecc.)
+  - `in` / `not in` controlla le chiavi
+  - Iterazione con `for pair in dict` → ogni passo è `[chiave, valore]`
+- **Nuovi opcode:** `MakeDict [u16:count]`
+- **Funzioni stdlib Dict:** `keys()`, `values()`, `items()`, `has_key()`, `del_key()`
+- **Funzioni stdlib List (Array):** `append()`, `remove()`, `contains()`, `insert()`, `sort()`, `reverse()`, `join()`
+- `len()` aggiornato per supportare Dict
+- Parser aggiornato: `{key: val}` dict literal, classi e impl senza corpo ora accettati (fix parser)
+- Stub Dict nel typecheck (`Type::Any`) e interpreter tree-walking (errore esplicito)
+- **23 test di integrazione** in `test_v025.neba`
+- **21 nuovi unit test** in `dict_tests` (neba_vm)
+
+### Invariato
+- Tutti i 258 test precedenti passano senza modifiche
+
+---
+
+
 
 ### Aggiunto
 - **Sistema trait completo nella bytecode VM**

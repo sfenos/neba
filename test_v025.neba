@@ -1,0 +1,204 @@
+# ─────────────────────────────────────────────
+# Neba — Test di verifica v0.2.5
+# Lists (Array) e Dicts
+# ─────────────────────────────────────────────
+
+var passed = 0
+var failed = 0
+
+fn ok(label: Str)
+    passed += 1
+    println(f"  ✅ {label}")
+
+fn fail(label: Str, got: Str)
+    failed += 1
+    println(f"  ❌ {label} → got: {got}")
+
+
+# ─────────────────────────────────────────────
+# DICT — letterali e accesso
+# ─────────────────────────────────────────────
+println("\n── Dict literals & access ──")
+
+var d = {"nome": "Neba", "versione": "0.2.5"}
+
+if d["nome"] == "Neba"
+    ok("dict literal string key read")
+else
+    fail("dict literal string key read", d["nome"])
+
+if d["versione"] == "0.2.5"
+    ok("dict second key read")
+else
+    fail("dict second key read", d["versione"])
+
+# Dict vuoto
+var empty = {}
+if len(empty) == 0
+    ok("empty dict len == 0")
+else
+    fail("empty dict len == 0", str(len(empty)))
+
+# Scrittura di una nuova chiave
+d["autore"] = "sfenos"
+if d["autore"] == "sfenos"
+    ok("dict key write (new key)")
+else
+    fail("dict key write (new key)", d["autore"])
+
+# Aggiornamento chiave esistente
+d["nome"] = "Neba Lang"
+if d["nome"] == "Neba Lang"
+    ok("dict key update")
+else
+    fail("dict key update", d["nome"])
+
+# Dict con chiavi Int
+var scores = {1: 100, 2: 200, 3: 300}
+if scores[2] == 200
+    ok("dict int key read")
+else
+    fail("dict int key read", str(scores[2]))
+
+
+# ─────────────────────────────────────────────
+# DICT — funzioni stdlib
+# ─────────────────────────────────────────────
+println("\n── Dict stdlib functions ──")
+
+var info = {"a": 1, "b": 2, "c": 3}
+
+let ks = keys(info)
+if len(ks) == 3
+    ok("keys() length")
+else
+    fail("keys() length", str(len(ks)))
+
+let vs = values(info)
+if len(vs) == 3
+    ok("values() length")
+else
+    fail("values() length", str(len(vs)))
+
+let its = items(info)
+if len(its) == 3
+    ok("items() length")
+else
+    fail("items() length", str(len(its)))
+
+if has_key(info, "b")
+    ok("has_key() true")
+else
+    fail("has_key() true", "false")
+
+if not has_key(info, "z")
+    ok("has_key() false")
+else
+    fail("has_key() false", "true")
+
+del_key(info, "b")
+if not has_key(info, "b") and len(info) == 2
+    ok("del_key()")
+else
+    fail("del_key()", str(len(info)))
+
+# in operator su Dict (controlla le chiavi)
+if "a" in info
+    ok("in operator on Dict (key present)")
+else
+    fail("in operator on Dict (key present)", "false")
+
+if "b" not in info
+    ok("not in operator on Dict (key absent)")
+else
+    fail("not in operator on Dict (key absent)", "true")
+
+
+# ─────────────────────────────────────────────
+# DICT — iterazione
+# ─────────────────────────────────────────────
+println("\n── Dict iteration ──")
+
+var counter = {"x": 10, "y": 20, "z": 30}
+var total = 0
+for pair in counter
+    total += pair[1]
+
+if total == 60
+    ok("for loop over dict yields [key, value] pairs")
+else
+    fail("for loop over dict", str(total))
+
+
+# ─────────────────────────────────────────────
+# LIST (Array) — nuove funzioni
+# ─────────────────────────────────────────────
+println("\n── List (Array) stdlib functions ──")
+
+var lst = [3, 1, 4, 1, 5, 9, 2, 6]
+
+# contains
+if contains(lst, 5)
+    ok("contains() true")
+else
+    fail("contains() true", "false")
+
+if not contains(lst, 99)
+    ok("contains() false")
+else
+    fail("contains() false", "true")
+
+# append (alias di push)
+append(lst, 42)
+if lst[len(lst) - 1] == 42
+    ok("append()")
+else
+    fail("append()", str(lst[len(lst) - 1]))
+
+# remove
+remove(lst, 42)
+if not contains(lst, 42)
+    ok("remove()")
+else
+    fail("remove()", "still contains 42")
+
+# insert
+insert(lst, 0, 99)
+if lst[0] == 99
+    ok("insert() at index 0")
+else
+    fail("insert() at index 0", str(lst[0]))
+
+# sort
+var s = [5, 2, 8, 1, 9, 3]
+sort(s)
+if s[0] == 1 and s[len(s)-1] == 9
+    ok("sort()")
+else
+    fail("sort()", f"{s[0]}..{s[len(s)-1]}")
+
+# reverse
+var r = [1, 2, 3, 4, 5]
+reverse(r)
+if r[0] == 5 and r[4] == 1
+    ok("reverse()")
+else
+    fail("reverse()", f"{r[0]}..{r[4]}")
+
+# join
+var words = ["ciao", "mondo", "neba"]
+let joined = join(words, ", ")
+if joined == "ciao, mondo, neba"
+    ok("join()")
+else
+    fail("join()", joined)
+
+
+# ─────────────────────────────────────────────
+# Risultati
+# ─────────────────────────────────────────────
+println(f"\n── Risultati: {passed} passati, {failed} falliti ──")
+if failed == 0
+    println("🎉 Tutto OK!")
+else
+    println("⚠️  Alcuni test falliti — vedi sopra")

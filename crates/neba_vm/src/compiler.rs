@@ -511,6 +511,16 @@ impl Compiler {
                 self.chunk.emit_u16(items.len() as u16);
             }
 
+            ExprKind::Dict(pairs) => {
+                // Per ogni coppia, emetti prima la chiave poi il valore (ordine: k0, v0, k1, v1, ...)
+                for (key, val) in pairs {
+                    self.compile_expr(key)?;
+                    self.compile_expr(val)?;
+                }
+                self.chunk.emit(Op::MakeDict, line);
+                self.chunk.emit_u16(pairs.len() as u16);
+            }
+
             ExprKind::Range { start, end, inclusive } => {
                 self.compile_expr(start)?;
                 self.compile_expr(end)?;

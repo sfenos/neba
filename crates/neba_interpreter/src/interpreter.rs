@@ -316,6 +316,11 @@ impl Interpreter {
                     .collect::<Result<_, _>>()?;
                 Ok(Value::Array(Rc::new(RefCell::new(vs))))
             }
+            // Dict literal — l'interpreter tree-walking non supporta ancora Dict nativamente,
+            // ma lo gestiamo come stub per compatibilità (la VM è il path principale)
+            ExprKind::Dict(_) => {
+                Err(crate::error::RuntimeError::Generic { message: "Dict literals require the bytecode VM (v0.2.5+)".into() })
+            }
             ExprKind::Range { start, end, inclusive } => {
                 let s = self.eval_expr(start)?;
                 let e = self.eval_expr(end)?;

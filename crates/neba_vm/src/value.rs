@@ -10,6 +10,9 @@ use crate::chunk::FnProto;
 pub type RcArray    = Rc<RefCell<Vec<Value>>>;
 pub type RcInstance = Rc<RefCell<Instance>>;
 pub type RcClosure  = Rc<Closure>;
+/// Dict: mappa chiave→valore con ordine di inserimento preservato.
+/// Usa Vec<(Value, Value)> per mantenere l'ordine (le chiavi sono tipicamente Str o Int).
+pub type RcDict     = Rc<RefCell<Vec<(Value, Value)>>>;
 
 /// Closure = FnProto + upvalue catturati al momento della definizione.
 #[derive(Clone)]
@@ -63,6 +66,7 @@ pub enum Value {
     // Heap (Rc = reference counting GC)
     Str(Rc<String>),
     Array(RcArray),
+    Dict(RcDict),
     Closure(RcClosure),
     NativeFn(String, NativeFn),
 
@@ -90,6 +94,10 @@ impl fmt::Debug for Value {
             Value::None         => write!(f, "None"),
             Value::Str(s)       => write!(f, "Str({:?})", s),
             Value::Array(a)     => write!(f, "Array({:?})", a.borrow()),
+            Value::Dict(d)      => {
+                let items: Vec<String> = d.borrow().iter().map(|(k,v)| format!("{:?}: {:?}", k, v)).collect();
+                write!(f, "Dict{{{}}}", items.join(", "))
+            }
             Value::Closure(c)   => write!(f, "Closure({})", c.proto.name),
             Value::NativeFn(n,_)=> write!(f, "NativeFn({})", n),
             Value::Some_(v)     => write!(f, "Some({:?})", v),
@@ -117,6 +125,11 @@ impl fmt::Display for Value {
             Value::Array(a)  => {
                 let items: Vec<String> = a.borrow().iter().map(|v| format!("{}", v)).collect();
                 write!(f, "[{}]", items.join(", "))
+            }
+            Value::Dict(d)   => {
+                let items: Vec<String> = d.borrow().iter()
+                    .map(|(k, v)| format!("{}: {}", k, v)).collect();
+                write!(f, "{{{}}}", items.join(", "))
             }
             Value::Closure(c) => write!(f, "<fn {}>", c.proto.name),
             Value::NativeFn(n, _) => write!(f, "<built-in {}>", n),
@@ -146,6 +159,7 @@ impl PartialEq for Value {
             (Value::Ok_(a),   Value::Ok_(b))   => a == b,
             (Value::Err_(a),  Value::Err_(b))  => a == b,
             (Value::Array(a), Value::Array(b)) => *a.borrow() == *b.borrow(),
+            (Value::Dict(a),  Value::Dict(b))  => *a.borrow() == *b.borrow(),
             _ => false,
         }
     }
@@ -174,6 +188,7 @@ impl Value {
             Value::None     => false,
             Value::Some_(_) => true,
             Value::Array(a) => !a.borrow().is_empty(),
+            Value::Dict(d)  => !d.borrow().is_empty(),
             _               => true,
         }
     }
@@ -186,6 +201,7 @@ impl Value {
             Value::None         => "None",
             Value::Str(_)       => "Str",
             Value::Array(_)     => "Array",
+            Value::Dict(_)      => "Dict",
             Value::Closure(_)   => "Function",
             Value::NativeFn(_,_)=> "NativeFunction",
             Value::Some_(_)     => "Some",
@@ -212,5 +228,10 @@ impl Value {
     /// Costruisce un Value::Array da un Vec<Value>
     pub fn array(v: Vec<Value>) -> Self {
         Value::Array(Rc::new(RefCell::new(v)))
+    }
+
+    /// Costruisce un Value::Dict da un Vec<(Value, Value)>
+    pub fn dict(pairs: Vec<(Value, Value)>) -> Self {
+        Value::Dict(Rc::new(RefCell::new(pairs)))
     }
 }

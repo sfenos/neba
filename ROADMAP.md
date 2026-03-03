@@ -4,7 +4,7 @@ Ultimo aggiornamento: 2026-02-26
 
 ---
 
-## Stato attuale: v0.2.4 ✅
+## Stato attuale: v0.2.5 ✅
 
 ---
 
@@ -69,7 +69,7 @@ Ultimo aggiornamento: 2026-02-26
 | v0.2.2 ✅ | Classi + trait dispatch (interpreter) |
 | v0.2.3 ✅ | Classes VM: definizione, istanziazione, metodi, self, __init__ |
 | v0.2.4 ✅ | Traits: definition, implementation, dispatch |
-| v0.2.5 | Lists and Dicts (dynamic, GC-managed) |
+| v0.2.5 ✅ | Lists and Dicts (dynamic, GC-managed) |
 | v0.2.6 | Native typed Array[T]: Float64, Int64, Int32, Float32 |
 | v0.2.7 | Array operations: indexing (0-based), slicing, basic arithmetic |
 | v0.2.8 | Error handling: Result[T,E], match, ? operator |

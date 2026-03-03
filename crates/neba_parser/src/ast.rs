@@ -43,6 +43,8 @@ pub enum ExprKind {
     Field  { object: Box<Expr>, field: String },
     Index  { object: Box<Expr>, index: Box<Expr> },
     Array(Vec<Expr>),
+    /// Dizionario letterale: `{key: value, ...}` oppure `{key => value, ...}`
+    Dict(Vec<(Expr, Expr)>),
     Range  { start: Box<Expr>, end: Box<Expr>, inclusive: bool },
     If {
         condition: Box<Expr>,

@@ -208,3 +208,139 @@ mod trait_tests {
         assert_eq!(r(src), Value::Float(26.0)); // 12.0 + 14.0
     }
 }
+
+#[cfg(test)]
+mod dict_tests {
+    use super::*;
+
+    fn r(src: &str) -> Value {
+        match run(src) {
+            Ok(v)  => v,
+            Err(e) => panic!("VmError: {}", e),
+        }
+    }
+
+    // ── Dict (v0.2.5) ──────────────────────────────────────────────────────
+
+    #[test]
+    fn t_dict_empty() {
+        assert_eq!(r("len({})"), Value::Int(0));
+    }
+
+    #[test]
+    fn t_dict_literal_read() {
+        assert_eq!(r(r#"let d = {"x": 10}
+d["x"]"#), Value::Int(10));
+    }
+
+    #[test]
+    fn t_dict_int_key() {
+        assert_eq!(r("let d = {1: 100, 2: 200}\nd[2]"), Value::Int(200));
+    }
+
+    #[test]
+    fn t_dict_write_new_key() {
+        assert_eq!(r(r#"var d = {}
+d["k"] = 42
+d["k"]"#), Value::Int(42));
+    }
+
+    #[test]
+    fn t_dict_update_key() {
+        assert_eq!(r(r#"var d = {"a": 1}
+d["a"] = 99
+d["a"]"#), Value::Int(99));
+    }
+
+    #[test]
+    fn t_dict_len() {
+        assert_eq!(r(r#"let d = {"a": 1, "b": 2, "c": 3}
+len(d)"#), Value::Int(3));
+    }
+
+    #[test]
+    fn t_dict_keys() {
+        assert_eq!(r(r#"let d = {"x": 1, "y": 2}
+len(keys(d))"#), Value::Int(2));
+    }
+
+    #[test]
+    fn t_dict_values() {
+        assert_eq!(r(r#"let d = {"x": 10, "y": 20}
+let vs = values(d)
+vs[0] + vs[1]"#), Value::Int(30));
+    }
+
+    #[test]
+    fn t_dict_has_key_true() {
+        assert_eq!(r(r#"let d = {"a": 1}
+has_key(d, "a")"#), Value::Bool(true));
+    }
+
+    #[test]
+    fn t_dict_has_key_false() {
+        assert_eq!(r(r#"let d = {"a": 1}
+has_key(d, "z")"#), Value::Bool(false));
+    }
+
+    #[test]
+    fn t_dict_del_key() {
+        assert_eq!(r(r#"var d = {"a": 1, "b": 2}
+del_key(d, "a")
+len(d)"#), Value::Int(1));
+    }
+
+    #[test]
+    fn t_dict_in_operator() {
+        assert_eq!(r(r#"let d = {"x": 1}
+"x" in d"#), Value::Bool(true));
+    }
+
+    #[test]
+    fn t_dict_not_in_operator() {
+        assert_eq!(r(r#"let d = {"x": 1}
+"z" not in d"#), Value::Bool(true));
+    }
+
+    // ── List new functions (v0.2.5) ────────────────────────────────────────
+
+    #[test]
+    fn t_list_contains_true() {
+        assert_eq!(r("contains([1,2,3], 2)"), Value::Bool(true));
+    }
+
+    #[test]
+    fn t_list_contains_false() {
+        assert_eq!(r("contains([1,2,3], 9)"), Value::Bool(false));
+    }
+
+    #[test]
+    fn t_list_append() {
+        assert_eq!(r("var a = [1,2]\nappend(a, 3)\nlen(a)"), Value::Int(3));
+    }
+
+    #[test]
+    fn t_list_remove() {
+        assert_eq!(r("var a = [1,2,3]\nremove(a, 2)\nlen(a)"), Value::Int(2));
+    }
+
+    #[test]
+    fn t_list_insert() {
+        assert_eq!(r("var a = [1,2,3]\ninsert(a, 0, 99)\na[0]"), Value::Int(99));
+    }
+
+    #[test]
+    fn t_list_sort() {
+        assert_eq!(r("var a = [3,1,2]\nsort(a)\na[0]"), Value::Int(1));
+    }
+
+    #[test]
+    fn t_list_reverse() {
+        assert_eq!(r("var a = [1,2,3]\nreverse(a)\na[0]"), Value::Int(3));
+    }
+
+    #[test]
+    fn t_list_join() {
+        assert_eq!(r(r#"join(["a","b","c"], "-")"#), Value::str("a-b-c"));
+    }
+}

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::value::Value;
+use crate::value::{Value, RcDict};
 
 pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
     macro_rules! reg {
@@ -7,23 +7,37 @@ pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
             globals.insert($name.to_string(), (Value::NativeFn($name.to_string(), $fn), false));
         };
     }
-    reg!("print",   neba_print);
-    reg!("println", neba_println);
-    reg!("input",   neba_input);
-    reg!("len",     neba_len);
-    reg!("str",     neba_str);
-    reg!("int",     neba_int);
-    reg!("float",   neba_float);
-    reg!("bool",    neba_bool);
-    reg!("typeof",  neba_type);
-    reg!("abs",     neba_abs);
-    reg!("min",     neba_min);
-    reg!("max",     neba_max);
-    reg!("range",   neba_range);
-    reg!("push",    neba_push);
-    reg!("pop",     neba_pop);
-    reg!("assert",  neba_assert);
-    reg!("clock",   neba_clock);
+    reg!("print",    neba_print);
+    reg!("println",  neba_println);
+    reg!("input",    neba_input);
+    reg!("len",      neba_len);
+    reg!("str",      neba_str);
+    reg!("int",      neba_int);
+    reg!("float",    neba_float);
+    reg!("bool",     neba_bool);
+    reg!("typeof",   neba_type);
+    reg!("abs",      neba_abs);
+    reg!("min",      neba_min);
+    reg!("max",      neba_max);
+    reg!("range",    neba_range);
+    reg!("push",     neba_push);
+    reg!("pop",      neba_pop);
+    reg!("assert",   neba_assert);
+    reg!("clock",    neba_clock);
+    // ── Dict ──────────────────────────────────────────────────────────────
+    reg!("keys",     neba_keys);
+    reg!("values",   neba_values);
+    reg!("items",    neba_items);
+    reg!("has_key",  neba_has_key);
+    reg!("del_key",  neba_del_key);
+    // ── List (Array) ──────────────────────────────────────────────────────
+    reg!("append",   neba_append);
+    reg!("remove",   neba_remove);
+    reg!("contains", neba_contains);
+    reg!("insert",   neba_insert);
+    reg!("sort",     neba_sort);
+    reg!("reverse",  neba_reverse);
+    reg!("join",     neba_join);
 }
 
 fn neba_print(args: &[Value]) -> Result<Value, String> {
@@ -45,6 +59,7 @@ fn neba_len(args: &[Value]) -> Result<Value, String> {
     match args.first() {
         Some(Value::Array(a)) => Ok(Value::Int(a.borrow().len() as i64)),
         Some(Value::Str(s))   => Ok(Value::Int(s.chars().count() as i64)),
+        Some(Value::Dict(d))  => Ok(Value::Int(d.borrow().len() as i64)),
         Some(v) => Err(format!("len() not supported for {}", v.type_name())),
         None    => Err("len() requires 1 argument".into()),
     }
@@ -148,4 +163,143 @@ fn neba_clock(_args: &[Value]) -> Result<Value, String> {
         .map_err(|e| e.to_string())?
         .as_secs_f64();
     Ok(Value::Float(secs))
+}
+
+// ── Dict functions ────────────────────────────────────────────────────────
+
+/// keys(dict) → Array di chiavi in ordine di inserimento
+fn neba_keys(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Dict(d)) => Ok(Value::array(d.borrow().iter().map(|(k, _)| k.clone()).collect())),
+        Some(v) => Err(format!("keys() requires Dict, got {}", v.type_name())),
+        None    => Err("keys() requires 1 argument".into()),
+    }
+}
+
+/// values(dict) → Array di valori in ordine di inserimento
+fn neba_values(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Dict(d)) => Ok(Value::array(d.borrow().iter().map(|(_, v)| v.clone()).collect())),
+        Some(v) => Err(format!("values() requires Dict, got {}", v.type_name())),
+        None    => Err("values() requires 1 argument".into()),
+    }
+}
+
+/// items(dict) → Array di [chiave, valore] in ordine di inserimento
+fn neba_items(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Dict(d)) => Ok(Value::array(
+            d.borrow().iter()
+                .map(|(k, v)| Value::array(vec![k.clone(), v.clone()]))
+                .collect()
+        )),
+        Some(v) => Err(format!("items() requires Dict, got {}", v.type_name())),
+        None    => Err("items() requires 1 argument".into()),
+    }
+}
+
+/// has_key(dict, key) → Bool
+fn neba_has_key(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Dict(d), key] => Ok(Value::Bool(d.borrow().iter().any(|(k, _)| k == key))),
+        _ => Err("has_key(dict, key) requires Dict and a key".into()),
+    }
+}
+
+/// del_key(dict, key) → None (rimuove la chiave se presente)
+fn neba_del_key(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Dict(d), key] => {
+            let mut d = d.borrow_mut();
+            if let Some(pos) = d.iter().position(|(k, _)| k == key) {
+                d.remove(pos);
+            }
+            Ok(Value::None)
+        }
+        _ => Err("del_key(dict, key) requires Dict and a key".into()),
+    }
+}
+
+// ── List (Array) functions ────────────────────────────────────────────────
+
+/// append(array, value) → None  (alias di push, nome più comune)
+fn neba_append(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(arr), val] => { arr.borrow_mut().push(val.clone()); Ok(Value::None) }
+        _ => Err("append(array, value) requires Array and value".into()),
+    }
+}
+
+/// remove(array, value) → Bool  (rimuove la prima occorrenza, restituisce true se trovata)
+fn neba_remove(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(arr), val] => {
+            let mut a = arr.borrow_mut();
+            if let Some(pos) = a.iter().position(|v| v == val) {
+                a.remove(pos);
+                Ok(Value::Bool(true))
+            } else {
+                Ok(Value::Bool(false))
+            }
+        }
+        _ => Err("remove(array, value) requires Array and value".into()),
+    }
+}
+
+/// contains(array, value) → Bool
+fn neba_contains(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(arr), val] => Ok(Value::Bool(arr.borrow().contains(val))),
+        [Value::Str(s), Value::Str(sub)] => Ok(Value::Bool(s.contains(sub.as_str()))),
+        _ => Err("contains(array, value) requires Array and value".into()),
+    }
+}
+
+/// insert(array, index, value) → None  (inserisce alla posizione)
+fn neba_insert(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(arr), Value::Int(idx), val] => {
+            let mut a = arr.borrow_mut();
+            let len = a.len() as i64;
+            let i = if *idx < 0 { (len + idx).max(0) as usize } else { (*idx as usize).min(a.len()) };
+            a.insert(i, val.clone());
+            Ok(Value::None)
+        }
+        _ => Err("insert(array, index, value) requires Array, Int, and value".into()),
+    }
+}
+
+/// sort(array) → None  (ordina in-place, valori omogenei)
+fn neba_sort(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(arr)) => {
+            let mut a = arr.borrow_mut();
+            a.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+            Ok(Value::None)
+        }
+        _ => Err("sort(array) requires an Array".into()),
+    }
+}
+
+/// reverse(array) → None  (inverte in-place)
+fn neba_reverse(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(arr)) => { arr.borrow_mut().reverse(); Ok(Value::None) }
+        _ => Err("reverse(array) requires an Array".into()),
+    }
+}
+
+/// join(array, separator) → Str
+fn neba_join(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(arr), Value::Str(sep)] => {
+            let parts: Vec<String> = arr.borrow().iter().map(|v| v.to_string()).collect();
+            Ok(Value::str(parts.join(sep.as_str())))
+        }
+        [Value::Array(arr)] => {
+            let parts: Vec<String> = arr.borrow().iter().map(|v| v.to_string()).collect();
+            Ok(Value::str(parts.join("")))
+        }
+        _ => Err("join(array, sep?) requires Array and optional Str separator".into()),
+    }
 }

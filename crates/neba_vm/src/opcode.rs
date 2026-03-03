@@ -94,6 +94,8 @@ pub enum Op {
     // ── Collezioni ────────────────────────────────────────────────────────
     /// `MakeArray [u16:count]` — pop count items (ordine LIFO), push Array
     MakeArray,
+    /// `MakeDict [u16:count]` — pop count*2 items (val, key interleaved LIFO), push Dict
+    MakeDict,
     /// `GetIndex` — pop idx, pop obj, push obj[idx]
     GetIndex,
     /// `SetIndex` — pop val, pop idx, pop obj, obj[idx]=val, push None
@@ -178,6 +180,7 @@ impl Op {
             Op::Call        => 1,
             Op::CallMethod  => 3,   // [u16 name] [u8 argc]
             Op::MakeArray   => 2,
+            Op::MakeDict    => 2,
             Op::MakeRange   => 1,
             Op::GetField    => 2,
             Op::SetField    => 2,

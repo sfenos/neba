@@ -459,6 +459,7 @@ impl Parser {
                 e
             }
             TokenKind::LBracket => self.parse_array_literal(),
+            TokenKind::LBrace   => self.parse_dict_literal(),
             TokenKind::If       => self.parse_if_expr(),
             TokenKind::Match    => self.parse_match_expr(),
             TokenKind::Spawn => {
@@ -597,6 +598,29 @@ impl Parser {
         }
         self.match_tok(&TokenKind::RBracket);
         Node::new(ExprKind::Array(items), span)
+    }
+
+    /// Parsa un dizionario letterale: `{key: value, ...}` oppure `{}` (dict vuoto).
+    /// Nota: il separatore è `:` (come in Python), non `=>`.
+    fn parse_dict_literal(&mut self) -> Expr {
+        let span = self.current_span();
+        self.advance(); // consuma `{`
+        let mut pairs: Vec<(Expr, Expr)> = Vec::new();
+        while !matches!(self.peek_kind(), TokenKind::RBrace | TokenKind::Eof) {
+            let key = self.parse_expr(Prec::None);
+            // Accetta sia `:` che `=>` come separatore chiave-valore
+            if !self.match_tok(&TokenKind::Colon) {
+                // prova con Arrow (=>)
+                if !self.match_tok(&TokenKind::Arrow) {
+                    // errore: atteso separatore
+                }
+            }
+            let val = self.parse_expr(Prec::None);
+            pairs.push((key, val));
+            if !self.match_tok(&TokenKind::Comma) { break; }
+        }
+        self.match_tok(&TokenKind::RBrace);
+        Node::new(ExprKind::Dict(pairs), span)
     }
 
     fn parse_if_expr(&mut self) -> Expr {

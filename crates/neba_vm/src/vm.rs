@@ -451,6 +451,17 @@ impl Vm {
                 push!(Value::array(items));
             }
 
+            Op::MakeDict => {
+                // Sullo stack ci sono count*2 valori: k0, v0, k1, v1, ...
+                let count = read_u16!() as usize;
+                let start = self.stack.len() - count * 2;
+                let flat: Vec<Value> = self.stack.drain(start..).collect();
+                let pairs: Vec<(Value, Value)> = flat.chunks(2)
+                    .map(|c| (c[0].clone(), c[1].clone()))
+                    .collect();
+                push!(Value::dict(pairs));
+            }
+
             Op::GetIndex => {
                 let idx_v = pop!();
                 let obj   = pop!();
@@ -467,7 +478,17 @@ impl Vm {
                         let i = self.resolve_idx(*i, len)?;
                         arr.borrow_mut()[i] = val;
                     }
-                    _ => return Err(VmError::TypeError("index assignment requires Array".into())),
+                    (Value::Dict(d), key) => {
+                        let key = key.clone();
+                        let mut d = d.borrow_mut();
+                        // Aggiorna se la chiave esiste, altrimenti inserisce
+                        if let Some(entry) = d.iter_mut().find(|(k, _)| k == &key) {
+                            entry.1 = val;
+                        } else {
+                            d.push((key, val));
+                        }
+                    }
+                    _ => return Err(VmError::TypeError("index assignment requires Array or Dict".into())),
                 }
             }
 
@@ -605,15 +626,19 @@ impl Vm {
                 let v = pop!();
                 let arr = match v {
                     Value::Array(a) => a,
+                    Value::Dict(d)  => {
+                        // Itera sulle coppie [key, value]
+                        let pairs: Vec<Value> = d.borrow().iter()
+                            .map(|(k, v)| Value::array(vec![k.clone(), v.clone()]))
+                            .collect();
+                        Rc::new(RefCell::new(pairs))
+                    }
                     Value::Str(s)   => {
                         let chars: Vec<Value> = s.chars().map(|c| Value::str(c.to_string())).collect();
                         Rc::new(RefCell::new(chars))
                     }
                     _ => return Err(VmError::TypeError(format!("'{}' is not iterable", v.type_name()))),
                 };
-                // Push: __Iter sentinel (l'array + pos=0)
-                // In realtà usiamo due local: l'array e la posizione
-                // Pushiamo l'array e poi 0
                 push!(Value::Array(arr));
             }
 
@@ -789,19 +814,35 @@ impl Vm {
     // ── Index access ──────────────────────────────────────────────────────
 
     fn eval_index(&self, obj: Value, idx: Value) -> VmResult {
-        let i = match &idx { Value::Int(n) => *n, _ => return Err(VmError::TypeError("index must be Int".into())) };
-        match obj {
-            Value::Array(arr) => {
-                let len = arr.borrow().len();
-                let a = self.resolve_idx(i, len)?;
-                Ok(arr.borrow()[a].clone())
+        match &obj {
+            Value::Dict(d) => {
+                // I dict accettano qualsiasi valore come chiave
+                let d = d.borrow();
+                d.iter()
+                    .find(|(k, _)| k == &idx)
+                    .map(|(_, v)| v.clone())
+                    .ok_or_else(|| VmError::Generic(format!("key not found in Dict: {}", idx)))
             }
-            Value::Str(s) => {
-                let chars: Vec<char> = s.chars().collect();
-                let a = self.resolve_idx(i, chars.len())?;
-                Ok(Value::str(chars[a].to_string()))
+            _ => {
+                // Array e Str richiedono indici Int
+                let i = match &idx {
+                    Value::Int(n) => *n,
+                    _ => return Err(VmError::TypeError("array/string index must be Int".into())),
+                };
+                match obj {
+                    Value::Array(arr) => {
+                        let len = arr.borrow().len();
+                        let a = self.resolve_idx(i, len)?;
+                        Ok(arr.borrow()[a].clone())
+                    }
+                    Value::Str(s) => {
+                        let chars: Vec<char> = s.chars().collect();
+                        let a = self.resolve_idx(i, chars.len())?;
+                        Ok(Value::str(chars[a].to_string()))
+                    }
+                    _ => Err(VmError::TypeError(format!("cannot index {}", obj.type_name()))),
+                }
             }
-            _ => Err(VmError::TypeError(format!("cannot index {}", obj.type_name()))),
         }
     }
 
@@ -819,6 +860,7 @@ impl Vm {
     fn eval_in(&self, needle: Value, haystack: Value) -> VmResult<bool> {
         match haystack {
             Value::Array(arr) => Ok(arr.borrow().contains(&needle)),
+            Value::Dict(d)    => Ok(d.borrow().iter().any(|(k, _)| k == &needle)),
             Value::Str(s)     => match &needle {
                 Value::Str(n) => Ok(s.contains(n.as_str())),
                 _             => Ok(false),

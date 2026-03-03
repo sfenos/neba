@@ -80,6 +80,11 @@ pub fn infer_expr(expr: &Expr, env: &mut TypeEnv, errors: &mut Vec<TypeError>) -
             Type::Array(Box::new(unified))
         }
 
+        ExprKind::Dict(_) => {
+            // v0.2.5: Dict è tipizzato come Any per ora (type inference completa in fasi future)
+            Type::Any
+        }
+
         // ── Range ─────────────────────────────────────────────────────────
         ExprKind::Range { start, end, .. } => {
             let st = infer_expr(start, env, errors);
