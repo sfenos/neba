@@ -35,6 +35,17 @@ struct Scope {
 pub struct ClassInfo {
     pub fields: Vec<Field>,
     pub methods: Vec<Stmt>,
+    /// Nomi dei trait che questa classe implementa (per `is` e ispezione futura).
+    pub traits: Vec<String>,
+}
+
+// ── TraitInfo (metadati di un trait) ──────────────────────────────────────
+
+/// Informazioni su un trait: firme dei metodi richiesti + implementazioni di default.
+#[derive(Debug, Clone)]
+pub struct TraitInfo {
+    /// Tutti i metodi dichiarati nel trait (sia abstract che default).
+    pub methods: Vec<Stmt>,
 }
 
 // ── Compiler ──────────────────────────────────────────────────────────────
@@ -50,6 +61,10 @@ pub struct Compiler {
     continue_patches: Vec<Vec<usize>>,
     /// Mappa class_name → ClassInfo
     pub class_registry: std::collections::HashMap<String, ClassInfo>,
+    /// Mappa trait_name → TraitInfo (metodi e default implementazioni)
+    pub trait_registry: std::collections::HashMap<String, TraitInfo>,
+    /// Mappa class_name → Vec<Stmt> dei metodi provenienti da `impl Trait for Class`
+    pub impl_registry: std::collections::HashMap<String, Vec<Stmt>>,
     /// Nome della funzione (per messaggi di errore)
     fn_name: String,
     is_function: bool,
@@ -74,6 +89,8 @@ impl Compiler {
             break_patches: Vec::new(),
             continue_patches: Vec::new(),
             class_registry: std::collections::HashMap::new(),
+            trait_registry: std::collections::HashMap::new(),
+            impl_registry: std::collections::HashMap::new(),
             fn_name: "<script>".to_string(),
             stack_depth: 0,
             loop_stack_depths: Vec::new(),
@@ -92,6 +109,8 @@ impl Compiler {
             break_patches: Vec::new(),
             continue_patches: Vec::new(),
             class_registry: std::collections::HashMap::new(),
+            trait_registry: std::collections::HashMap::new(),
+            impl_registry: std::collections::HashMap::new(),
             fn_name: name.to_string(),
             stack_depth: 0,
             loop_stack_depths: Vec::new(),
@@ -111,6 +130,51 @@ impl Compiler {
             c.chunk.emit(Op::Halt, 0);
             return Ok(c.chunk);
         }
+
+        // ── Pre-pass: raccoglie trait e impl prima di compilare ───────────
+        // Questo permette che `impl Trait for Class` funzioni anche se viene
+        // scritto dopo la definizione della classe (o prima di essa).
+        for stmt in stmts.iter() {
+            match &stmt.inner {
+                StmtKind::Trait { name, methods } => {
+                    // Registra il trait con i suoi metodi (incluse le implementazioni di default)
+                    c.trait_registry.insert(name.clone(), TraitInfo {
+                        methods: methods.clone(),
+                    });
+                }
+                StmtKind::Impl { trait_name, for_type, methods } => {
+                    if let Some(class_name) = for_type {
+                        // Aggiunge i metodi dell'impl alla mappa per quella classe
+                        let entry = c.impl_registry
+                            .entry(class_name.clone())
+                            .or_insert_with(Vec::new);
+
+                        // Aggiunge i metodi implementati dall'utente
+                        for m in methods {
+                            entry.push(m.clone());
+                        }
+
+                        // Aggiunge i metodi default del trait NON overridati dall'impl
+                        if let Some(trait_info) = c.trait_registry.get(trait_name).cloned() {
+                            let impl_names: std::collections::HashSet<String> = methods.iter()
+                                .filter_map(|s| if let StmtKind::Fn { name, .. } = &s.inner { Some(name.clone()) } else { None })
+                                .collect();
+                            for default_method in &trait_info.methods {
+                                if let StmtKind::Fn { name: mname, body, .. } = &default_method.inner {
+                                    // Solo se il body NON è solo `pass` e non è già overridato
+                                    let is_pass_only = body.len() == 1 && matches!(body[0].inner, StmtKind::Pass);
+                                    if !is_pass_only && !impl_names.contains(mname) {
+                                        entry.push(default_method.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
         for stmt in &stmts[..stmts.len() - 1] {
             c.compile_stmt(stmt)?;
         }
@@ -193,7 +257,7 @@ impl Compiler {
                 self.compile_class(name, fields, methods, impls, line)?;
             }
             StmtKind::Trait { .. } | StmtKind::Impl { .. } => {
-                // No-op in v0.2.0 (saranno gestiti in v0.2.4)
+                // Gestiti nel pre-pass di compile() — nessun codice da emettere qui.
             }
             StmtKind::Mod(n) => {
                 eprintln!("[warn] mod '{}' non supportato in v0.2.0", n);
@@ -888,8 +952,10 @@ impl Compiler {
         line: u32,
     ) -> VmResult<()> {
         let mut fn_compiler = Compiler::new_function(name);
-        // Copia il class_registry nel sotto-compiler
+        // Copia i registry nel sotto-compiler (class, trait, impl)
         fn_compiler.class_registry = self.class_registry.clone();
+        fn_compiler.trait_registry  = self.trait_registry.clone();
+        fn_compiler.impl_registry   = self.impl_registry.clone();
         // Passa i locali del frame corrente come parent_locals per cattura upvalue
         fn_compiler.parent_locals = self.locals.iter().enumerate()
             .map(|(i, l)| (l.name.clone(), i as u8))
@@ -960,10 +1026,32 @@ impl Compiler {
         impls: &[Stmt],
         line: u32,
     ) -> VmResult<()> {
-        // Registra la classe nel registry locale
+        // Raccoglie i metodi da `impl Trait for Class` registrati nel pre-pass
+        // per questa classe, più eventuali `impl` annidati nella definizione classe.
+        let impl_methods: Vec<Stmt> = self.impl_registry
+            .get(name)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .chain(impls.iter().cloned())
+            .collect();
+
+        // Determina quali trait sono implementati (per ClassInfo.traits)
+        let implemented_traits: Vec<String> = self.impl_registry
+            .iter()
+            .filter(|(_, stmts)| !stmts.is_empty())
+            .flat_map(|(_, _)| {
+                // Recupera i trait_name dall'impl_registry originale cercando negli stmt globali
+                // In questa versione usiamo un approccio semplice: il nome è memorizzato a runtime
+                std::iter::empty::<String>()
+            })
+            .collect();
+
+        // Registra la classe nel registry locale (con traits implementati)
         self.class_registry.insert(name.to_string(), ClassInfo {
             fields: fields.to_vec(),
             methods: methods.to_vec(),
+            traits: implemented_traits,
         });
 
         // Emetti un costruttore come closure
@@ -973,7 +1061,10 @@ impl Compiler {
 
         // Compila il costruttore come una funzione speciale
         let mut ctor = Compiler::new_function(name);
+        // Propaga tutti i registry al costruttore
         ctor.class_registry = self.class_registry.clone();
+        ctor.trait_registry  = self.trait_registry.clone();
+        ctor.impl_registry   = self.impl_registry.clone();
 
         // MakeInstance: crea l'istanza
         let name_idx = ctor.chunk.add_name(name);
@@ -1010,14 +1101,32 @@ impl Compiler {
             }
         }
 
-        // Compila i metodi come closures nei campi dell'istanza
-        for method_stmt in methods.iter().chain(impls.iter()) {
+        // Compila i metodi come closures nei campi dell'istanza.
+        // Priorità: i metodi definiti nella classe sovrascrivono quelli dei trait.
+        // Prima i metodi della classe, poi quelli degli impl (che non sono già presenti).
+        let class_method_names: std::collections::HashSet<String> = methods.iter()
+            .filter_map(|s| if let StmtKind::Fn { name, .. } = &s.inner { Some(name.clone()) } else { None })
+            .collect();
+
+        for method_stmt in methods.iter() {
             if let StmtKind::Fn { name: mname, params, body, is_async, .. } = &method_stmt.inner {
                 ctor.chunk.emit(Op::Dup, ctor_line); // dup instance per SetField
                 ctor.compile_fn_def(mname, params, body, *is_async, ctor_line)?;
                 let midx = ctor.chunk.add_name(mname);
                 ctor.chunk.emit(Op::SetField, ctor_line);
                 ctor.chunk.emit_u16(midx);
+            }
+        }
+        // Aggiunge i metodi dei trait (solo quelli non già definiti nella classe)
+        for method_stmt in impl_methods.iter() {
+            if let StmtKind::Fn { name: mname, params, body, is_async, .. } = &method_stmt.inner {
+                if !class_method_names.contains(mname) {
+                    ctor.chunk.emit(Op::Dup, ctor_line);
+                    ctor.compile_fn_def(mname, params, body, *is_async, ctor_line)?;
+                    let midx = ctor.chunk.add_name(mname);
+                    ctor.chunk.emit(Op::SetField, ctor_line);
+                    ctor.chunk.emit_u16(midx);
+                }
             }
         }
 

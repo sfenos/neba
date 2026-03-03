@@ -164,3 +164,47 @@ fn debug_var_assign() {
     let chunk = crate::compiler::Compiler::compile(&program).unwrap();
     println!("{}", chunk.disassemble("<script>"));
 }
+
+#[cfg(test)]
+mod trait_tests {
+    use super::*;
+
+    fn r(src: &str) -> Value {
+        match run(src) {
+            Ok(v)  => v,
+            Err(e) => panic!("VmError: {}", e),
+        }
+    }
+
+    // ── Traits (v0.2.4) ────────────────────────────────────────────────────
+
+    #[test]
+    fn t_trait_basic_dispatch() {
+        let src = "trait Greet\n    fn greet(self) -> Str\n        pass\n\nclass Person\n    name: Str = \"\"\n\nimpl Greet for Person\n    fn greet(self) -> Str\n        return f\"Ciao, {self.name}!\"\n\nvar p = Person()\np.name = \"Neba\"\np.greet()";
+        assert_eq!(r(src), Value::str("Ciao, Neba!"));
+    }
+
+    #[test]
+    fn t_trait_two_classes_same_trait() {
+        let src = "trait Area\n    fn area(self) -> Float\n        pass\n\nclass Quadrato\n    lato: Float = 0.0\n\nimpl Area for Quadrato\n    fn area(self) -> Float\n        return self.lato * self.lato\n\nclass Cerchio\n    r: Float = 0.0\n\nimpl Area for Cerchio\n    fn area(self) -> Float\n        return 3.0 * self.r * self.r\n\nvar q = Quadrato()\nq.lato = 4.0\nvar c = Cerchio()\nc.r = 2.0\nq.area() + c.area()";
+        assert_eq!(r(src), Value::Float(28.0));
+    }
+
+    #[test]
+    fn t_trait_default_method() {
+        let src = "trait Describable\n    fn label(self) -> Str\n        return \"oggetto\"\n\nclass Cosa\n    val: Int = 0\n\nimpl Describable for Cosa\n\nvar x = Cosa()\nx.label()";
+        assert_eq!(r(src), Value::str("oggetto"));
+    }
+
+    #[test]
+    fn t_trait_override_default() {
+        let src = "trait Named\n    fn name(self) -> Str\n        return \"default\"\n\nclass Foo\n\nimpl Named for Foo\n    fn name(self) -> Str\n        return \"Foo\"\n\nvar f = Foo()\nf.name()";
+        assert_eq!(r(src), Value::str("Foo"));
+    }
+
+    #[test]
+    fn t_trait_multiple_methods() {
+        let src = "trait Shape\n    fn area(self) -> Float\n        pass\n    fn perimeter(self) -> Float\n        pass\n\nclass Rect\n    w: Float = 0.0\n    h: Float = 0.0\n\nimpl Shape for Rect\n    fn area(self) -> Float\n        return self.w * self.h\n    fn perimeter(self) -> Float\n        return 2.0 * (self.w + self.h)\n\nvar rect = Rect()\nrect.w = 3.0\nrect.h = 4.0\nrect.area() + rect.perimeter()";
+        assert_eq!(r(src), Value::Float(26.0)); // 12.0 + 14.0
+    }
+}

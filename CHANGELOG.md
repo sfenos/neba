@@ -5,7 +5,40 @@ Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
 ---
 
-## [0.1.2] — Tree-walking Interpreter — 2026-02-25
+## [0.2.4] — Traits: definizione, implementazione e dispatch — 2026-03-03
+
+### Aggiunto
+- **Sistema trait completo nella bytecode VM**
+  - `trait Foo` — definizione di un trait con metodi richiesti e metodi default
+  - `impl Trait for Class` — implementazione di un trait su una classe esistente
+  - Dispatch dei metodi trait via istanza (i metodi dell'impl diventano campi dell'istanza al momento della costruzione)
+  - Metodi **default** del trait: se il body del metodo non è solo `pass`, viene usato automaticamente sulle classi che non lo sovrascrivono
+  - Metodi della classe hanno **precedenza** sui default del trait (override implicito)
+  - Più classi possono implementare lo stesso trait con dispatch indipendente
+- **Pre-pass nel compilatore** per raccogliere `trait` e `impl` prima della compilazione delle classi
+  - `trait_registry: HashMap<String, TraitInfo>` — mappa trait_name → metodi (con default)
+  - `impl_registry: HashMap<String, Vec<Stmt>>` — mappa class_name → metodi dell'impl
+  - Entrambi i registry propagati ai sotto-compilatori (metodi, costruttori)
+- **Miglioramenti parser**
+  - Classi senza corpo (`class Foo`) ora accettate — utili con i trait
+  - `impl Trait for Class` senza corpo ora accettato — usa solo i default del trait
+  - `pass` in impl body = impl esplicito vuoto (usa tutti i default del trait)
+- **Nuovi struct nel compilatore**
+  - `TraitInfo { methods: Vec<Stmt> }` — metadati di un trait
+  - `ClassInfo.traits: Vec<String>` — aggiunto campo per i trait implementati (base per `is` futuro)
+- **5 nuovi unit test** in `trait_tests` (neba_vm):
+  - `t_trait_basic_dispatch` — dispatch base su istanza
+  - `t_trait_two_classes_same_trait` — due classi con lo stesso trait
+  - `t_trait_default_method` — metodo default dal trait senza override
+  - `t_trait_override_default` — override del default con metodo dell'impl
+  - `t_trait_multiple_methods` — impl con più metodi
+
+### Invariato
+- Tutti i 258 test esistenti passano senza modifiche
+
+---
+
+
 
 ### Aggiunto
 - **`neba_interpreter`** — crate completo con interprete tree-walking

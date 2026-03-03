@@ -188,18 +188,21 @@ impl Parser {
             }),
         };
         self.expect_newline();
-        if let Err(e) = self.expect(&TokenKind::Indent, "indented class body") { return self.error_stmt(e); }
+        // Il corpo della classe è opzionale: una classe senza corpo è valida (riceve solo i metodi dai trait).
         let mut fields = Vec::new(); let mut methods = Vec::new(); let mut impls = Vec::new();
-        self.skip_newlines();
-        while !matches!(self.peek_kind(), TokenKind::Dedent | TokenKind::Eof) {
-            match self.peek_kind().clone() {
-                TokenKind::Fn | TokenKind::Async => methods.push(self.parse_stmt()),
-                TokenKind::Impl                  => impls.push(self.parse_stmt()),
-                TokenKind::Newline               => { self.advance(); }
-                _                                => fields.push(self.parse_field()),
+        if self.match_tok(&TokenKind::Indent) {
+            self.skip_newlines();
+            while !matches!(self.peek_kind(), TokenKind::Dedent | TokenKind::Eof) {
+                match self.peek_kind().clone() {
+                    TokenKind::Fn | TokenKind::Async => methods.push(self.parse_stmt()),
+                    TokenKind::Impl                  => impls.push(self.parse_stmt()),
+                    TokenKind::Pass                  => { self.advance(); self.skip_newlines(); break; }
+                    TokenKind::Newline               => { self.advance(); }
+                    _                                => fields.push(self.parse_field()),
+                }
             }
+            self.match_tok(&TokenKind::Dedent);
         }
-        self.match_tok(&TokenKind::Dedent);
         Node::new(StmtKind::Class { name, fields, methods, impls }, span)
     }
 
@@ -252,14 +255,22 @@ impl Parser {
             }
         } else { None };
         self.expect_newline();
-        if let Err(e) = self.expect(&TokenKind::Indent, "indented impl body") { return self.error_stmt(e); }
+        // Il corpo dell'impl è opzionale: se non c'è Indent, usa solo i default del trait.
         let mut methods = Vec::new();
-        self.skip_newlines();
-        while !matches!(self.peek_kind(), TokenKind::Dedent | TokenKind::Eof) {
-            if matches!(self.peek_kind(), TokenKind::Newline) { self.advance(); continue; }
-            methods.push(self.parse_stmt());
+        if self.match_tok(&TokenKind::Indent) {
+            self.skip_newlines();
+            while !matches!(self.peek_kind(), TokenKind::Dedent | TokenKind::Eof) {
+                if matches!(self.peek_kind(), TokenKind::Newline) { self.advance(); continue; }
+                // `pass` in impl = usa solo i default del trait
+                if matches!(self.peek_kind(), TokenKind::Pass) {
+                    self.advance();
+                    self.skip_newlines();
+                    break;
+                }
+                methods.push(self.parse_stmt());
+            }
+            self.match_tok(&TokenKind::Dedent);
         }
-        self.match_tok(&TokenKind::Dedent);
         Node::new(StmtKind::Impl { trait_name, for_type, methods }, span)
     }
 
