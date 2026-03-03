@@ -804,3 +804,370 @@ mod upvalue_v029_tests {
     }
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Suite v0.2.10 — Error handling: Result[T,E] + operatore ?
+//
+// Categorie:
+//   A. Costruttori Ok/Err e match base
+//   B. Operatore ? — propagazione su Ok (unwrap)
+//   C. Operatore ? — propagazione su Err (early return)
+//   D. Metodi built-in: is_ok, is_err, unwrap, unwrap_or
+//   E. Metodi built-in su Option: is_some, is_none, unwrap, unwrap_or
+//   F. Composizione: ? annidato, catena di funzioni
+//   G. Interazione con match, loop, classi
+//   H. Regressione — funzionalità pre-esistenti non rotte
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod result_v0210_tests {
+    use super::*;
+
+    // ══════════════════════════════════════════════════════════════════════
+    // A — COSTRUTTORI E MATCH BASE
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn a1_ok_constructor() {
+        assert_eq!(run("Ok(42)").unwrap(), Value::Ok_(Box::new(Value::Int(42))));
+    }
+
+    #[test]
+    fn a2_err_constructor() {
+        assert_eq!(run("Err(\"oops\")").unwrap(), Value::Err_(Box::new(Value::str("oops"))));
+    }
+
+    #[test]
+    fn a3_match_ok_arm() {
+        let src = "match Ok(5)\n    Ok(v) => v\n    Err(e) => 0";
+        assert_eq!(run(src).unwrap(), Value::Int(5));
+    }
+
+    #[test]
+    fn a4_match_err_arm() {
+        let src = "match Err(\"fail\")\n    Ok(v) => 1\n    Err(e) => 0";
+        assert_eq!(run(src).unwrap(), Value::Int(0));
+    }
+
+    #[test]
+    fn a5_match_ok_binding() {
+        let src = "let r = Ok(99)\nmatch r\n    Ok(v) => v\n    Err(_) => 0";
+        assert_eq!(run(src).unwrap(), Value::Int(99));
+    }
+
+    #[test]
+    fn a6_match_err_binding() {
+        let src = "let r = Err(\"bad\")\nmatch r\n    Ok(v) => v\n    Err(e) => e";
+        assert_eq!(run(src).unwrap(), Value::str("bad"));
+    }
+
+    #[test]
+    fn a7_ok_wraps_string() {
+        assert_eq!(run("Ok(\"hello\")").unwrap(), Value::Ok_(Box::new(Value::str("hello"))));
+    }
+
+    #[test]
+    fn a8_err_wraps_int() {
+        assert_eq!(run("Err(404)").unwrap(), Value::Err_(Box::new(Value::Int(404))));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // B — OPERATORE ? su Ok (unwrap del valore)
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn b1_question_unwraps_ok() {
+        let src = "fn f()\n    let v = Ok(42)?\n    return v\nf()";
+        assert_eq!(run(src).unwrap(), Value::Int(42));
+    }
+
+    #[test]
+    fn b2_question_on_function_returning_ok() {
+        let src = "fn safe_div(a, b)\n    if b == 0\n        return Err(\"zero\")\n    return Ok(a / b)\nfn compute()\n    let r = safe_div(10, 2)?\n    return Ok(r)\ncompute()";
+        assert_eq!(run(src).unwrap(), Value::Ok_(Box::new(Value::Float(5.0))));
+    }
+
+    #[test]
+    fn b3_question_result_used_in_expression() {
+        let src = "fn f()\n    let v = Ok(10)?\n    return Ok(v * 3)\nf()";
+        assert_eq!(run(src).unwrap(), Value::Ok_(Box::new(Value::Int(30))));
+    }
+
+    #[test]
+    fn b4_question_chained_ok_ops() {
+        let src = "fn double(x)\n    return Ok(x * 2)\nfn add1(x)\n    return Ok(x + 1)\nfn f()\n    let a = double(5)?\n    let b = add1(a)?\n    return Ok(b)\nf()";
+        assert_eq!(run(src).unwrap(), Value::Ok_(Box::new(Value::Int(11))));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // C — OPERATORE ? su Err (early return con Err)
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn c1_question_propagates_err() {
+        let src = "fn fail()\n    return Err(\"boom\")\nfn f()\n    let v = fail()?\n    return Ok(99)\nf()";
+        assert_eq!(run(src).unwrap(), Value::Err_(Box::new(Value::str("boom"))));
+    }
+
+    #[test]
+    fn c2_question_short_circuits_on_err() {
+        // Se ? propaga, il codice dopo non viene eseguito
+        let src = "fn may_fail(ok)\n    if ok\n        return Ok(1)\n    return Err(\"no\")\nfn f()\n    let a = may_fail(false)?\n    let b = may_fail(true)?\n    return Ok(a + b)\nf()";
+        assert_eq!(run(src).unwrap(), Value::Err_(Box::new(Value::str("no"))));
+    }
+
+    #[test]
+    fn c3_question_on_divide_by_zero() {
+        // Nota: compute(x) chiama divide(x, 2) — divisore è 2, non x.
+        // Usiamo direttamente una funzione che passa b=0 per testare propagazione Err.
+        let src = "fn divide(a, b)\n    if b == 0\n        return Err(\"div by zero\")\n    return Ok(a / b)\nfn compute()\n    let r = divide(10, 0)?\n    return Ok(r * 10)\ncompute()";
+        assert_eq!(run(src).unwrap(), Value::Err_(Box::new(Value::str("div by zero"))));
+    }
+
+    #[test]
+    fn c4_question_on_divide_success() {
+        let src = "fn divide(a, b)\n    if b == 0\n        return Err(\"div by zero\")\n    return Ok(a / b)\nfn compute(x)\n    let r = divide(x, 2)?\n    return Ok(r * 10)\ncompute(6)";
+        assert_eq!(run(src).unwrap(), Value::Ok_(Box::new(Value::Float(30.0))));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // D — METODI BUILT-IN SU RESULT
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn d1_ok_is_ok_true() {
+        assert_eq!(run("Ok(1).is_ok()").unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn d2_ok_is_err_false() {
+        assert_eq!(run("Ok(1).is_err()").unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn d3_err_is_ok_false() {
+        assert_eq!(run("Err(\"x\").is_ok()").unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn d4_err_is_err_true() {
+        assert_eq!(run("Err(\"x\").is_err()").unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn d5_ok_unwrap_returns_value() {
+        assert_eq!(run("Ok(77).unwrap()").unwrap(), Value::Int(77));
+    }
+
+    #[test]
+    fn d6_ok_unwrap_or_returns_value_not_default() {
+        assert_eq!(run("Ok(5).unwrap_or(99)").unwrap(), Value::Int(5));
+    }
+
+    #[test]
+    fn d7_err_unwrap_or_returns_default() {
+        assert_eq!(run("Err(\"x\").unwrap_or(0)").unwrap(), Value::Int(0));
+    }
+
+    #[test]
+    fn d8_err_unwrap_or_string_default() {
+        assert_eq!(run("Err(404).unwrap_or(\"fallback\")").unwrap(), Value::str("fallback"));
+    }
+
+    #[test]
+    fn d9_is_ok_in_if_condition() {
+        let src = "let r = Ok(10)\nif r.is_ok()\n    1\nelse\n    0";
+        assert_eq!(run(src).unwrap(), Value::Int(1));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // E — METODI BUILT-IN SU OPTION
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn e1_some_is_some_true() {
+        assert_eq!(run("Some(1).is_some()").unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn e2_none_is_some_false() {
+        assert_eq!(run_limited("None.is_some()", 500).unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn e3_some_is_none_false() {
+        assert_eq!(run("Some(1).is_none()").unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn e4_none_is_none_true() {
+        assert_eq!(run_limited("None.is_none()", 500).unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn e5_some_unwrap_returns_value() {
+        assert_eq!(run("Some(42).unwrap()").unwrap(), Value::Int(42));
+    }
+
+    #[test]
+    fn e6_some_unwrap_or_returns_inner() {
+        assert_eq!(run("Some(7).unwrap_or(0)").unwrap(), Value::Int(7));
+    }
+
+    #[test]
+    fn e7_none_unwrap_or_returns_default() {
+        assert_eq!(run_limited("None.unwrap_or(99)", 500).unwrap(), Value::Int(99));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // F — COMPOSIZIONE E CASI AVANZATI
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn f1_pipeline_three_functions() {
+        let src = "
+fn step1(x)
+    return Ok(x + 1)
+fn step2(x)
+    return Ok(x * 2)
+fn step3(x)
+    if x > 100
+        return Err(\"too big\")
+    return Ok(x)
+fn pipeline(n)
+    let a = step1(n)?
+    let b = step2(a)?
+    let c = step3(b)?
+    return Ok(c)
+pipeline(5)
+";
+        assert_eq!(run(src).unwrap(), Value::Ok_(Box::new(Value::Int(12))));
+    }
+
+    #[test]
+    fn f2_pipeline_short_circuits() {
+        let src = "
+fn step1(x)
+    return Ok(x + 1)
+fn step2(x)
+    return Ok(x * 2)
+fn step3(x)
+    if x > 10
+        return Err(\"too big\")
+    return Ok(x)
+fn pipeline(n)
+    let a = step1(n)?
+    let b = step2(a)?
+    let c = step3(b)?
+    return Ok(c)
+pipeline(10)
+";
+        assert_eq!(run(src).unwrap(), Value::Err_(Box::new(Value::str("too big"))));
+    }
+
+    #[test]
+    fn f3_is_ok_and_unwrap_combined() {
+        let src = "let r = Ok(55)\nif r.is_ok()\n    r.unwrap()\nelse\n    0";
+        assert_eq!(run(src).unwrap(), Value::Int(55));
+    }
+
+    #[test]
+    fn f4_unwrap_or_in_expression() {
+        let src = "let a = Ok(3).unwrap_or(0)\nlet b = Err(\"x\").unwrap_or(7)\na + b";
+        assert_eq!(run(src).unwrap(), Value::Int(10));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // G — INTERAZIONE CON MATCH, LOOP, CLASSI
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn g1_result_in_match_inside_for() {
+        let src = "
+fn safe(x)
+    if x == 0
+        return Err(\"zero\")
+    return Ok(x)
+var sum = 0
+for i in 1..4
+    match safe(i)
+        Ok(v) => sum += v
+        Err(_) => sum += 0
+sum
+";
+        assert_eq!(run(src).unwrap(), Value::Int(6));
+    }
+
+    #[test]
+    fn g2_question_operator_in_loop() {
+        let src = "
+fn get(x)
+    return Ok(x * 2)
+fn sum_doubles(n)
+    var total = 0
+    for i in 0..n
+        let d = get(i)?
+        total += d
+    return Ok(total)
+sum_doubles(4)
+";
+        assert_eq!(run(src).unwrap(), Value::Ok_(Box::new(Value::Int(12))));
+    }
+
+    #[test]
+    fn g3_multiple_match_arms_ok_err() {
+        let src = "
+fn classify(n)
+    if n < 0
+        return Err(\"negative\")
+    if n == 0
+        return Ok(\"zero\")
+    return Ok(\"positive\")
+let r1 = classify(5)
+let r2 = classify(0)
+let r3 = classify(-1)
+match r1
+    Ok(s) => match r2
+        Ok(s2) => match r3
+            Err(e) => 1
+            _ => 0
+        _ => 0
+    _ => 0
+";
+        assert_eq!(run(src).unwrap(), Value::Int(1));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // H — REGRESSIONE
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn h1_basic_arithmetic_unchanged() {
+        assert_eq!(run("2 + 3 * 4").unwrap(), Value::Int(14));
+    }
+
+    #[test]
+    fn h2_some_none_match_unchanged() {
+        let src = "match Some(7)\n    Some(v) => v\n    None => 0";
+        assert_eq!(run(src).unwrap(), Value::Int(7));
+    }
+
+    #[test]
+    fn h3_closures_still_work() {
+        let src = "fn mk()\n    var n = 0\n    fn inc()\n        n = n + 1\n        return n\n    return inc\nlet c = mk()\nc()\nc()\nc()";
+        assert_eq!(run(src).unwrap(), Value::Int(3));
+    }
+
+    #[test]
+    fn h4_classes_still_work() {
+        // Sintassi corretta: field declaration + assegnazione post-costruzione
+        let src = "class Box\n    v: Int = 0\n\nlet b = Box()\nb.v = 42\nb.v";
+        assert_eq!(run(src).unwrap(), Value::Int(42));
+    }
+
+    #[test]
+    fn h5_fib_unchanged() {
+        let src = "fn fib(n)\n    if n <= 1\n        return n\n    return fib(n-1) + fib(n-2)\nfib(10)";
+        assert_eq!(run(src).unwrap(), Value::Int(55));
+    }
+}

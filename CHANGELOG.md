@@ -6,6 +6,59 @@ Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 ---
 
 
+## [0.2.10] — Error handling
+
+### Aggiunto
+- **`?` operator** (propagazione errori): `ExprKind::Try` in AST, parsing postfix in parser, opcode `Propagate` in VM
+  - Su `Ok(v)`: unwrappa e continua con `v`
+  - Su `Err(e)`: early return immediato con `Err(e)` dalla funzione corrente
+- **Metodi built-in su Result** (via `CallMethod`):
+  - `.is_ok()` → Bool
+  - `.is_err()` → Bool
+  - `.unwrap()` → valore interno (panic su Err)
+  - `.unwrap_or(default)` → valore interno o default
+- **Metodi built-in su Option**:
+  - `.is_some()` → Bool
+  - `.is_none()` → Bool
+  - `.unwrap()` → valore interno (panic su None)
+  - `.unwrap_or(default)` → valore interno o default
+- **`ExprKind::Try`** aggiunto a AST, interprete tree-walking, typecheck (stub)
+
+### Statistiche
+- Test totali: **208** (neba_vm) — zero regressioni
+- Suite `result_v0210_tests`: 44 test
+
+### Note
+- Due bug trovati durante lo sviluppo della suite (test corretti, non bug VM):
+  - c3: logica test sbagliata (divisore era 2, non 0)
+  - h4: sintassi `fn init(v)` non supportata dalla classe — usa field declaration
+
+---
+
+## [0.2.9] — Mutable upvalue fix
+
+### Modificato
+- **`value.rs`** — `Upvalue.value` cambiato da `Value` (copia diretta) a `Rc<RefCell<Value>>` (cella condivisa)
+- **`vm.rs`** — `MakeClosure`: ogni upvalue catturato è ora wrappato in `Rc::new(RefCell::new(v))`
+- **`vm.rs`** — `LoadUpval`: legge via `borrow().clone()`
+- **`vm.rs`** — `StoreUpval`: scrive via `borrow_mut()` nella cella condivisa
+- **`vm.rs`** — `Call`/`TailCall`: `upvalues.clone()` ora clona gli `Rc` (incrementa refcount, stesso RefCell) — le mutazioni persistono tra chiamate successive
+
+### Bug risolti
+- **Closure counter/accumulatore**: chiamate successive alla stessa closure ora vedono le mutazioni degli upvalue delle chiamate precedenti (prima ogni chiamata clonava i valori freschi dalla closure, perdendo le modifiche)
+- **Istanze indipendenti**: due closure create dallo stesso factory non condividono stato (celle distinte per istanza)
+
+### Test aggiunti (4 nuovi)
+- `t_upvalue_counter_basic` — counter incrementa a 1, 2, 3
+- `t_upvalue_counter_five_calls` — 5 chiamate → 5
+- `t_upvalue_accumulator` — add(3) + add(4) + add(10) → 17
+- `t_upvalue_independent_instances` — due counter indipendenti
+
+### Statistiche
+- Test totali: **137** (neba_vm) — zero regressioni
+
+---
+
 ## [0.2.8] — bugfix match
 
 ### Bug risolti

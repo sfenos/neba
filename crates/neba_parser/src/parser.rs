@@ -26,7 +26,8 @@ fn infix_prec(tok: &TokenKind) -> Option<(Prec, bool)> {
         TokenKind::Star | TokenKind::Slash
         | TokenKind::SlashSlash | TokenKind::Percent                => Some((Prec::Mul,     false)),
         TokenKind::StarStar                                         => Some((Prec::Power,   true)),
-        TokenKind::LParen | TokenKind::LBracket | TokenKind::Dot   => Some((Prec::Call,    false)),
+        TokenKind::LParen | TokenKind::LBracket | TokenKind::Dot
+        | TokenKind::QuestionMark                                   => Some((Prec::Call,    false)),
         _ => None,
     }
 }
@@ -521,6 +522,10 @@ impl Parser {
                     _ => "?".to_string(),
                 };
                 Node::new(ExprKind::Field { object: Box::new(left), field }, span)
+            }
+            TokenKind::QuestionMark => {
+                self.advance();
+                Node::new(ExprKind::Try(Box::new(left)), span)
             }
             TokenKind::DotDot => {
                 self.advance();

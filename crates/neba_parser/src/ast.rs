@@ -58,6 +58,8 @@ pub enum ExprKind {
     Some(Box<Expr>),
     Ok(Box<Expr>),
     Err(Box<Expr>),
+    /// Operatore `?`: propaga Err early-return, unwrappa Ok.
+    Try(Box<Expr>),
     Error,
 }
 

@@ -120,6 +120,8 @@ pub enum Op {
     MakeOk,
     /// `MakeErr` — pop v, push Err(v)
     MakeErr,
+    /// `Propagate` — se top è Ok(v): pop, push v; se Err(e): early return Err(e)
+    Propagate,
 
     // ── Membership ────────────────────────────────────────────────────────
     In,

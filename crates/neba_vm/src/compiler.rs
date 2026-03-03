@@ -540,6 +540,10 @@ impl Compiler {
                 self.compile_expr(inner)?;
                 self.chunk.emit(Op::MakeErr, line);
             }
+            ExprKind::Try(inner) => {
+                self.compile_expr(inner)?;
+                self.chunk.emit(Op::Propagate, line);
+            }
 
             ExprKind::Spawn(inner) => {
                 eprintln!("[warn] spawn è sincrono in v0.2.0");

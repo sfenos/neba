@@ -158,10 +158,11 @@ impl fmt::Debug for Closure {
 }
 
 /// Un upvalue è un valore catturato da un frame padre.
-/// In v0.2.0 è sempre "closed" (copiato per valore) al momento della cattura.
+/// Usa `Rc<RefCell<Value>>` per condividere la cella tra closure e CallFrame:
+/// `StoreUpval` scrive nella cella condivisa e le mutazioni persistono tra chiamate.
 #[derive(Debug, Clone)]
 pub struct Upvalue {
-    pub value: Value,
+    pub value: Rc<RefCell<Value>>,
 }
 
 /// Funzione nativa (built-in).

@@ -209,6 +209,14 @@ pub fn infer_expr(expr: &Expr, env: &mut TypeEnv, errors: &mut Vec<TypeError>) -
             let t = infer_expr(inner, env, errors);
             Type::Result(Box::new(Type::Unknown), Box::new(t))
         }
+        ExprKind::Try(inner) => {
+            // ? propaga Err e unwrappa Ok — restituisce il tipo interno T di Result[T,E]
+            let t = infer_expr(inner, env, errors);
+            match t {
+                Type::Result(ok_t, _) => *ok_t,
+                _ => Type::Unknown,
+            }
+        }
 
         // ── Spawn / Await ─────────────────────────────────────────────────
         ExprKind::Spawn(e) | ExprKind::Await(e) => {

@@ -312,13 +312,13 @@ impl Vm {
             // ── Upvalue ───────────────────────────────────────────────────
             Op::LoadUpval => {
                 let idx = read_u8!() as usize;
-                let v = self.frames.last().unwrap().upvalues[idx].value.clone();
+                let v = self.frames.last().unwrap().upvalues[idx].value.borrow().clone();
                 push!(v);
             }
             Op::StoreUpval => {
                 let idx = read_u8!() as usize;
                 let v = pop!();
-                self.frames.last_mut().unwrap().upvalues[idx].value = v;
+                *self.frames.last_mut().unwrap().upvalues[idx].value.borrow_mut() = v;
             }
 
             // ── Globali ───────────────────────────────────────────────────
@@ -439,7 +439,7 @@ impl Vm {
                 if n_upvalues > 0 {
                     let start = self.stack.len() - n_upvalues;
                     for v in self.stack.drain(start..) {
-                        upvalues.push(Upvalue { value: v });
+                        upvalues.push(Upvalue { value: Rc::new(RefCell::new(v)) });
                     }
                 }
                 let closure = Closure { proto, upvalues };
@@ -500,6 +500,74 @@ impl Vm {
                 // Stack: [..., obj, arg0, ..., argN-1]
                 let obj_idx = self.stack.len() - argc - 1;
                 let obj     = self.stack[obj_idx].clone();
+
+                // ── Metodi built-in su Result e Option ───────────────────
+                let builtin_result = match (&obj, name.as_str()) {
+                    (Value::Ok_(_) | Value::Err_(_), "is_ok") => {
+                        self.stack.drain(obj_idx..);
+                        Some(Value::Bool(matches!(obj, Value::Ok_(_))))
+                    }
+                    (Value::Ok_(_) | Value::Err_(_), "is_err") => {
+                        self.stack.drain(obj_idx..);
+                        Some(Value::Bool(matches!(obj, Value::Err_(_))))
+                    }
+                    (Value::Ok_(inner), "unwrap") => {
+                        self.stack.drain(obj_idx..);
+                        Some(*inner.clone())
+                    }
+                    (Value::Err_(e), "unwrap") => {
+                        return Err(VmError::Generic(
+                            format!("unwrap() chiamato su Err({})", e)
+                        ));
+                    }
+                    (Value::Ok_(inner), "unwrap_or") => {
+                        self.stack.drain(obj_idx..);
+                        Some(*inner.clone())
+                    }
+                    (Value::Err_(_), "unwrap_or") => {
+                        // arg0 è il default
+                        let default = if argc > 0 {
+                            self.stack.drain(obj_idx..).nth(1).unwrap_or(Value::None)
+                        } else { Value::None };
+                        Some(default)
+                    }
+                    (Value::Some_(inner), "is_some") => {
+                        self.stack.drain(obj_idx..);
+                        Some(Value::Bool(true))
+                    }
+                    (Value::None, "is_some") => {
+                        self.stack.drain(obj_idx..);
+                        Some(Value::Bool(false))
+                    }
+                    (Value::Some_(_), "is_none") | (Value::None, "is_none") => {
+                        let r = matches!(obj, Value::None);
+                        self.stack.drain(obj_idx..);
+                        Some(Value::Bool(r))
+                    }
+                    (Value::Some_(inner), "unwrap") => {
+                        self.stack.drain(obj_idx..);
+                        Some(*inner.clone())
+                    }
+                    (Value::None, "unwrap") => {
+                        return Err(VmError::Generic("unwrap() chiamato su None".into()));
+                    }
+                    (Value::Some_(inner), "unwrap_or") => {
+                        self.stack.drain(obj_idx..);
+                        Some(*inner.clone())
+                    }
+                    (Value::None, "unwrap_or") => {
+                        let default = if argc > 0 {
+                            self.stack.drain(obj_idx..).nth(1).unwrap_or(Value::None)
+                        } else { Value::None };
+                        Some(default)
+                    }
+                    _ => None,
+                };
+
+                if let Some(result) = builtin_result {
+                    push!(result);
+                    return Ok(None);
+                }
 
                 // Recupera il metodo dall'istanza
                 let method = match &obj {
@@ -694,6 +762,32 @@ impl Vm {
             Op::MakeSome => { let v = pop!(); push!(Value::Some_(Box::new(v))); }
             Op::MakeOk   => { let v = pop!(); push!(Value::Ok_(Box::new(v)));   }
             Op::MakeErr  => { let v = pop!(); push!(Value::Err_(Box::new(v)));  }
+            Op::Propagate => {
+                let v = pop!();
+                match v {
+                    Value::Ok_(inner) => push!(*inner),
+                    Value::Err_(e) => {
+                        // Early return: risale i frame finché trova una funzione
+                        let err_val = Value::Err_(e);
+                        if self.frames.len() <= 1 {
+                            // Siamo al top-level — restituisce il valore Err
+                            let frame = self.frames.pop().unwrap();
+                            self.stack.truncate(frame.base.saturating_sub(1));
+                            return Ok(Some(err_val));
+                        }
+                        let frame = self.frames.pop().unwrap();
+                        self.stack.truncate(frame.base - 1);
+                        push!(err_val);
+                        let is_done = self.frames.is_empty();
+                        if is_done {
+                            return Ok(Some(pop!()));
+                        }
+                    }
+                    other => return Err(VmError::TypeError(
+                        format!("operatore ? applicato a {} (richiede Ok o Err)", other.type_name())
+                    )),
+                }
+            }
 
             // ── Membership ────────────────────────────────────────────────
             Op::In => {

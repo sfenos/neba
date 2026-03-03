@@ -336,6 +336,18 @@ impl Interpreter {
             ExprKind::Some(inner) => { let v = self.eval_expr(inner)?; Ok(Value::Some(Box::new(v))) }
             ExprKind::Ok(inner)   => { let v = self.eval_expr(inner)?; Ok(Value::Ok(Box::new(v)))  }
             ExprKind::Err(inner)  => { let v = self.eval_expr(inner)?; Ok(Value::Err(Box::new(v))) }
+            ExprKind::Try(inner)  => {
+                let v = self.eval_expr(inner)?;
+                match v {
+                    Value::Ok(inner) => Ok(*inner),
+                    Value::Err(e) => Err(RuntimeError::Generic {
+                        message: format!("propagated Err: {}", e),
+                    }),
+                    other => Err(RuntimeError::TypeError {
+                        message: format!("? applicato a {} (richiede Ok o Err)", other.type_name()),
+                    }),
+                }
+            }
 
             ExprKind::Error => Err(RuntimeError::Generic { message: "AST error node".to_string() }),
         }
