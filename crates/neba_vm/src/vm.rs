@@ -569,7 +569,7 @@ impl Vm {
                     return Ok(None);
                 }
 
-                // Recupera il metodo dall'istanza
+                // Recupera il metodo dall'istanza o dal modulo (Dict)
                 let method = match &obj {
                     Value::Instance(inst) => {
                         inst.borrow().fields.get(&name).cloned()
@@ -577,6 +577,17 @@ impl Vm {
                             type_name: inst.borrow().class_name.clone(),
                                     field: name.clone(),
                         })?
+                    }
+                    Value::Dict(d) => {
+                        // Moduli stdlib: cerca la funzione nel Dict per chiave stringa
+                        let key = Value::str(&name);
+                        d.borrow().iter()
+                            .find(|(k, _)| k == &key)
+                            .map(|(_, v)| v.clone())
+                            .ok_or_else(|| VmError::UnknownField {
+                                type_name: "Dict".into(),
+                                field: name.clone(),
+                            })?
                     }
                     other => {
                         return Err(VmError::UnknownField {
@@ -586,8 +597,16 @@ impl Vm {
                     }
                 };
 
-                // Inserisci self come primo argomento (prima degli altri args)
-                self.stack.insert(obj_idx + 1, obj);
+                // Per i Dict-moduli, NON inserire self come primo argomento —
+                // le NativeFn del modulo non si aspettano il receiver.
+                // Per le istanze invece self va inserito.
+                let is_module = matches!(obj, Value::Dict(_));
+                if !is_module {
+                    self.stack.insert(obj_idx + 1, obj);
+                } else {
+                    // Rimuovi l'oggetto Dict dallo stack (non è un argomento)
+                    self.stack.remove(obj_idx);
+                }
 
                 match method {
                     Value::Closure(c) => {
@@ -630,7 +649,13 @@ impl Vm {
                         return Ok(None);
                     }
                     Value::NativeFn(_, f) => {
-                        let args: Vec<Value> = self.stack.drain(obj_idx..).skip(1).collect();
+                        let args: Vec<Value> = if is_module {
+                            // Dict-modulo: obj già rimosso, gli args sono contigui da obj_idx
+                            self.stack.drain(obj_idx..).collect()
+                        } else {
+                            // Istanza: skip(1) per saltare self (già inserito come arg0)
+                            self.stack.drain(obj_idx..).skip(1).collect()
+                        };
                         let result = f(&args).map_err(VmError::Generic)?;
                         push!(result);
                     }
@@ -1051,6 +1076,14 @@ impl Vm {
                     type_name: inst.borrow().class_name.clone(),
                     field: field.to_string(),
                 })
+            }
+            Value::Dict(d) => {
+                // Moduli stdlib (e Dict generici) — lookup per nome
+                let key = Value::str(field);
+                d.borrow().iter()
+                    .find(|(k, _)| k == &key)
+                    .map(|(_, v)| v.clone())
+                    .ok_or_else(|| VmError::UnknownField { type_name: "Dict".into(), field: field.to_string() })
             }
             Value::Array(arr) => match field {
                 "len" => Ok(Value::Int(arr.borrow().len() as i64)),

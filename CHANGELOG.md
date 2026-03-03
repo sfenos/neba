@@ -5,6 +5,63 @@ Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
 ---
 
+## [0.2.11] — 2026-03-03
+
+### Aggiunto
+
+**Standard Library v0: quattro moduli namespace accessibili come `modulo.funzione()`**
+
+#### `math` — Matematica completa
+- **Costanti:** `math.pi`, `math.e`, `math.tau`, `math.inf`, `math.nan`
+- **Aritmetica:** `sqrt`, `pow`, `exp`, `log(x)`, `log(x, base)`, `log2`, `log10`
+- **Trigonometria:** `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2(y,x)`, `hypot`
+- **Conversioni angolari:** `degrees`, `radians`
+- **Arrotondamento:** `floor`, `ceil`, `round(x)`, `round(x, decimals)`, `trunc`
+- **Utilità:** `sign`, `clamp(x, lo, hi)`, `gcd`, `lcm`, `factorial` (0–20)
+- **Predicati:** `isnan`, `isinf`
+
+#### `string` — Manipolazione stringhe
+- **Splitting/joining:** `split(s)`, `split(s, sep)`, `split(s, sep, n)`, `lines`, `chars`
+- **Pulizia:** `strip`, `lstrip`, `rstrip` (alias: `trim`)
+- **Case:** `upper`, `lower`
+- **Ricerca:** `find`, `rfind`, `count`, `contains`, `startswith`, `endswith`, `index`
+- **Trasformazione:** `replace(s, from, to)`, `replace(s, from, to, n)`, `repeat`, `pad_left`, `pad_right`
+- **Predicati:** `is_empty`
+- **Template:** `format(template, dict)` — sostituisce `{key}` con valori dal dict
+
+#### `io` — I/O su file
+- `read_file(path)` → Str
+- `write_file(path, content)` → None (crea/sovrascrive)
+- `append_file(path, content)` → None
+- `file_exists(path)` → Bool
+- `read_lines(path)` → Array[Str]
+- `delete_file(path)` → None
+
+#### `collections` — Utilità su collezioni
+- **Costruzione:** `zip(a, b)`, `enumerate(arr)`, `enumerate(arr, start)`, `concat(a, b)`, `repeat(arr, n)`
+- **Trasformazione:** `flatten`, `unique`, `sorted`, `chunk(arr, n)`, `transpose`
+- **Selezione:** `take(arr, n)`, `drop(arr, n)`, `first(arr)` → Option, `last(arr)` → Option
+- **Aggregazione:** `sum`, `product`, `count_by(arr, value)`
+- **Predicati:** `any`, `all`, `none`
+
+### Modificato
+- **`vm.rs` `get_field`**: aggiunto supporto Dict — lookup per nome stringa. Questo abilita la sintassi `modulo.funzione(args)` dove il modulo è un Dict di NativeFn.
+- **`stdlib.rs` `register_globals`**: registra `math`, `string`, `io`, `collections` come Dict globali.
+
+### Note architetturali
+- I moduli sono `Value::Dict` con chiavi `Value::Str` e valori `Value::NativeFn`. Il `GetField` della VM ora risolve i Dict per nome — zero overhead a runtime rispetto alle funzioni globali.
+- HOF (`map`, `filter`, `reduce`) richiedono callback nel VM (`NativeFn` è `fn(&[Value]) -> Result<Value, String>`, senza accesso alla VM). Verranno implementati come opcode dedicati in v0.2.12 o tramite refactor `NativeFn` → closure Rust.
+- `collections.first`/`last` restituiscono `Option` (Some/None) per uniformità con il tipo system Neba.
+
+### Test
+- Aggiunto `test_v0211.neba`: 80+ asserzioni su tutti e 4 i moduli
+- math: costanti, trigonometria, arrotondamento, utilità numeriche
+- string: split, case, replace, find, pad, format
+- io: write/read/append/delete/exists file su `/tmp`
+- collections: zip, enumerate, flatten, unique, sort, chunk, sum, any/all/none, transpose
+
+---
+
 
 ## [0.2.10] — Error handling
 

@@ -1,0 +1,562 @@
+# ─────────────────────────────────────────────────────────────────
+# Neba — Test suite v0.2.11
+# Standard Library v0: math, string, io, collections
+# ─────────────────────────────────────────────────────────────────
+
+var passed = 0
+var failed = 0
+
+fn ok(label: Str)
+    passed += 1
+    println(f"  ✅ {label}")
+
+fn fail(label: Str, got: Str)
+    failed += 1
+    println(f"  ❌ {label} → got: {got}")
+
+fn close(a: Float, b: Float) -> Bool
+    return abs(a - b) < 0.000001
+
+
+# ═══════════════════════════════════════════════════════════════
+# MATH MODULE
+# ═══════════════════════════════════════════════════════════════
+println("\n── math: costanti ──")
+
+if close(math.pi, 3.14159265)
+    ok("math.pi ≈ 3.14159")
+else
+    fail("math.pi", str(math.pi))
+
+if close(math.e, 2.71828182)
+    ok("math.e ≈ 2.71828")
+else
+    fail("math.e", str(math.e))
+
+if close(math.tau, 6.28318530)
+    ok("math.tau ≈ 6.28318")
+else
+    fail("math.tau", str(math.tau))
+
+println("\n── math: funzioni aritmetiche ──")
+
+if close(math.sqrt(9.0), 3.0)
+    ok("math.sqrt(9.0) == 3.0")
+else
+    fail("math.sqrt(9.0)", str(math.sqrt(9.0)))
+
+if close(math.sqrt(2.0), 1.41421356)
+    ok("math.sqrt(2.0) ≈ 1.41421")
+else
+    fail("math.sqrt(2.0)", str(math.sqrt(2.0)))
+
+if close(math.pow(2.0, 10.0), 1024.0)
+    ok("math.pow(2, 10) == 1024")
+else
+    fail("math.pow(2, 10)", str(math.pow(2.0, 10.0)))
+
+if close(math.exp(1.0), math.e)
+    ok("math.exp(1.0) == e")
+else
+    fail("math.exp(1.0)", str(math.exp(1.0)))
+
+if close(math.log(math.e), 1.0)
+    ok("math.log(e) == 1.0")
+else
+    fail("math.log(e)", str(math.log(math.e)))
+
+if close(math.log2(8.0), 3.0)
+    ok("math.log2(8.0) == 3.0")
+else
+    fail("math.log2(8.0)", str(math.log2(8.0)))
+
+if close(math.log10(1000.0), 3.0)
+    ok("math.log10(1000.0) == 3.0")
+else
+    fail("math.log10(1000.0)", str(math.log10(1000.0)))
+
+println("\n── math: trigonometria ──")
+
+if close(math.sin(0.0), 0.0)
+    ok("math.sin(0) == 0")
+else
+    fail("math.sin(0)", str(math.sin(0.0)))
+
+if close(math.cos(0.0), 1.0)
+    ok("math.cos(0) == 1")
+else
+    fail("math.cos(0)", str(math.cos(0.0)))
+
+if close(math.sin(math.pi / 2.0), 1.0)
+    ok("math.sin(π/2) == 1")
+else
+    fail("math.sin(π/2)", str(math.sin(math.pi / 2.0)))
+
+if close(math.atan2(1.0, 1.0), math.pi / 4.0)
+    ok("math.atan2(1,1) == π/4")
+else
+    fail("math.atan2(1,1)", str(math.atan2(1.0, 1.0)))
+
+if close(math.hypot(3.0, 4.0), 5.0)
+    ok("math.hypot(3,4) == 5")
+else
+    fail("math.hypot(3,4)", str(math.hypot(3.0, 4.0)))
+
+println("\n── math: arrotondamento ──")
+
+if math.floor(2.9) == 2
+    ok("math.floor(2.9) == 2")
+else
+    fail("math.floor(2.9)", str(math.floor(2.9)))
+
+if math.ceil(2.1) == 3
+    ok("math.ceil(2.1) == 3")
+else
+    fail("math.ceil(2.1)", str(math.ceil(2.1)))
+
+if math.round(2.5) == 3
+    ok("math.round(2.5) == 3")
+else
+    fail("math.round(2.5)", str(math.round(2.5)))
+
+if math.trunc(3.9) == 3
+    ok("math.trunc(3.9) == 3")
+else
+    fail("math.trunc(3.9)", str(math.trunc(3.9)))
+
+println("\n── math: utilità ──")
+
+if math.sign(-5) == -1
+    ok("math.sign(-5) == -1")
+else
+    fail("math.sign(-5)", str(math.sign(-5)))
+
+if math.sign(0) == 0
+    ok("math.sign(0) == 0")
+else
+    fail("math.sign(0)", str(math.sign(0)))
+
+if math.sign(7) == 1
+    ok("math.sign(7) == 1")
+else
+    fail("math.sign(7)", str(math.sign(7)))
+
+if close(math.clamp(5.0, 0.0, 3.0), 3.0)
+    ok("math.clamp(5, 0, 3) == 3")
+else
+    fail("math.clamp(5,0,3)", str(math.clamp(5.0, 0.0, 3.0)))
+
+if close(math.clamp(-1.0, 0.0, 3.0), 0.0)
+    ok("math.clamp(-1, 0, 3) == 0")
+else
+    fail("math.clamp(-1,0,3)", str(math.clamp(-1.0, 0.0, 3.0)))
+
+if math.gcd(12, 8) == 4
+    ok("math.gcd(12, 8) == 4")
+else
+    fail("math.gcd(12, 8)", str(math.gcd(12, 8)))
+
+if math.lcm(4, 6) == 12
+    ok("math.lcm(4, 6) == 12")
+else
+    fail("math.lcm(4, 6)", str(math.lcm(4, 6)))
+
+if math.factorial(5) == 120
+    ok("math.factorial(5) == 120")
+else
+    fail("math.factorial(5)", str(math.factorial(5)))
+
+if math.factorial(0) == 1
+    ok("math.factorial(0) == 1")
+else
+    fail("math.factorial(0)", str(math.factorial(0)))
+
+if math.isnan(math.nan)
+    ok("math.isnan(nan) == true")
+else
+    fail("math.isnan(nan)", "false")
+
+if math.isinf(math.inf)
+    ok("math.isinf(inf) == true")
+else
+    fail("math.isinf(inf)", "false")
+
+if close(math.degrees(math.pi), 180.0)
+    ok("math.degrees(π) == 180")
+else
+    fail("math.degrees(π)", str(math.degrees(math.pi)))
+
+if close(math.radians(180.0), math.pi)
+    ok("math.radians(180) == π")
+else
+    fail("math.radians(180)", str(math.radians(180.0)))
+
+
+# ═══════════════════════════════════════════════════════════════
+# STRING MODULE
+# ═══════════════════════════════════════════════════════════════
+println("\n── string: split ──")
+
+var parts = string.split("hello world neba")
+if len(parts) == 3
+    ok("split whitespace → 3 parts")
+else
+    fail("split whitespace", str(len(parts)))
+
+var csv = string.split("a,b,c", ",")
+if len(csv) == 3 and csv[0] == "a" and csv[2] == "c"
+    ok("split(',') → [a,b,c]")
+else
+    fail("split(',')", str(len(csv)))
+
+println("\n── string: strip ──")
+
+if string.strip("  hello  ") == "hello"
+    ok("strip spaces")
+else
+    fail("strip", string.strip("  hello  "))
+
+if string.lstrip("  hello  ") == "hello  "
+    ok("lstrip left only")
+else
+    fail("lstrip", string.lstrip("  hello  "))
+
+if string.rstrip("  hello  ") == "  hello"
+    ok("rstrip right only")
+else
+    fail("rstrip", string.rstrip("  hello  "))
+
+println("\n── string: case ──")
+
+if string.upper("hello") == "HELLO"
+    ok("upper('hello') == 'HELLO'")
+else
+    fail("upper", string.upper("hello"))
+
+if string.lower("NEBA") == "neba"
+    ok("lower('NEBA') == 'neba'")
+else
+    fail("lower", string.lower("NEBA"))
+
+println("\n── string: replace / find / count ──")
+
+if string.replace("hello world", "world", "neba") == "hello neba"
+    ok("replace 'world' → 'neba'")
+else
+    fail("replace", string.replace("hello world", "world", "neba"))
+
+if string.find("hello world", "world") == 6
+    ok("find('world') == 6")
+else
+    fail("find", str(string.find("hello world", "world")))
+
+if string.find("hello", "xyz") == -1
+    ok("find missing → -1")
+else
+    fail("find missing", str(string.find("hello", "xyz")))
+
+if string.count("banana", "a") == 3
+    ok("count('a' in 'banana') == 3")
+else
+    fail("count", str(string.count("banana", "a")))
+
+println("\n── string: startswith / endswith ──")
+
+if string.startswith("hello world", "hello")
+    ok("startswith('hello')")
+else
+    fail("startswith", "false")
+
+if string.endswith("hello world", "world")
+    ok("endswith('world')")
+else
+    fail("endswith", "false")
+
+if string.startswith("hello", "xyz") == false
+    ok("startswith negative")
+else
+    fail("startswith negative", "true")
+
+println("\n── string: repeat / pad ──")
+
+if string.repeat("ab", 3) == "ababab"
+    ok("repeat('ab', 3) == 'ababab'")
+else
+    fail("repeat", string.repeat("ab", 3))
+
+if string.pad_left("42", 5, "0") == "00042"
+    ok("pad_left('42', 5, '0') == '00042'")
+else
+    fail("pad_left", string.pad_left("42", 5, "0"))
+
+if string.pad_right("hi", 5, ".") == "hi..."
+    ok("pad_right('hi', 5, '.') == 'hi...'")
+else
+    fail("pad_right", string.pad_right("hi", 5, "."))
+
+println("\n── string: chars / lines / is_empty ──")
+
+var chars = string.chars("abc")
+if len(chars) == 3 and chars[0] == "a"
+    ok("chars('abc') → 3 chars")
+else
+    fail("chars", str(len(chars)))
+
+var lines_arr = string.lines("a\nb\nc")
+if len(lines_arr) == 3
+    ok("lines('a\\nb\\nc') → 3 lines")
+else
+    fail("lines", str(len(lines_arr)))
+
+if string.is_empty("")
+    ok("is_empty('') == true")
+else
+    fail("is_empty", "false")
+
+if string.is_empty("x") == false
+    ok("is_empty('x') == false")
+else
+    fail("is_empty non-empty", "true")
+
+println("\n── string: contains / format ──")
+
+if string.contains("hello world", "world")
+    ok("contains('world')")
+else
+    fail("contains", "false")
+
+var tmpl = "Hello, {name}! You are {age} years old."
+var fmt_result = string.format(tmpl, {"name": "Neba", "age": "3"})
+if string.contains(fmt_result, "Neba") and string.contains(fmt_result, "3")
+    ok("string.format with dict")
+else
+    fail("string.format", fmt_result)
+
+
+# ═══════════════════════════════════════════════════════════════
+# IO MODULE
+# ═══════════════════════════════════════════════════════════════
+println("\n── io: file operations ──")
+
+var test_path = "/tmp/neba_test_v0211.txt"
+
+io.write_file(test_path, "Hello from Neba!\nLine 2\nLine 3")
+if io.file_exists(test_path)
+    ok("io.write_file + io.file_exists")
+else
+    fail("io.file_exists after write", "false")
+
+var content = io.read_file(test_path)
+if string.startswith(content, "Hello from Neba!")
+    ok("io.read_file")
+else
+    fail("io.read_file", content)
+
+var file_lines = io.read_lines(test_path)
+if len(file_lines) == 3 and file_lines[0] == "Hello from Neba!"
+    ok("io.read_lines → 3 lines")
+else
+    fail("io.read_lines", str(len(file_lines)))
+
+io.append_file(test_path, "\nLine 4")
+var content2 = io.read_file(test_path)
+if string.contains(content2, "Line 4")
+    ok("io.append_file")
+else
+    fail("io.append_file", content2)
+
+io.delete_file(test_path)
+if io.file_exists(test_path) == false
+    ok("io.delete_file")
+else
+    fail("io.delete_file", "still exists")
+
+
+# ═══════════════════════════════════════════════════════════════
+# COLLECTIONS MODULE
+# ═══════════════════════════════════════════════════════════════
+println("\n── collections: zip / enumerate ──")
+
+var zipped = collections.zip([1, 2, 3], ["a", "b", "c"])
+if len(zipped) == 3 and zipped[0][0] == 1 and zipped[0][1] == "a"
+    ok("collections.zip → 3 pairs")
+else
+    fail("collections.zip", str(len(zipped)))
+
+var enumerated = collections.enumerate(["x", "y", "z"])
+if len(enumerated) == 3 and enumerated[0][0] == 0 and enumerated[2][0] == 2
+    ok("collections.enumerate 0-based")
+else
+    fail("collections.enumerate", str(enumerated[0][0]))
+
+var enum2 = collections.enumerate(["a", "b"], 1)
+if enum2[0][0] == 1 and enum2[1][0] == 2
+    ok("collections.enumerate with start=1")
+else
+    fail("collections.enumerate start=1", str(enum2[0][0]))
+
+println("\n── collections: flatten ──")
+
+var nested = [[1, 2], [3, 4], [5]]
+var flat = collections.flatten(nested)
+if len(flat) == 5 and flat[0] == 1 and flat[4] == 5
+    ok("collections.flatten nested arrays")
+else
+    fail("collections.flatten", str(len(flat)))
+
+println("\n── collections: unique ──")
+
+var dupes = [1, 2, 2, 3, 1, 4]
+var uniq = collections.unique(dupes)
+if len(uniq) == 4
+    ok("collections.unique deduplicates")
+else
+    fail("collections.unique", str(len(uniq)))
+
+println("\n── collections: sorted ──")
+
+var unsorted = [5, 2, 8, 1, 9, 3]
+var srtd = collections.sorted(unsorted)
+if srtd[0] == 1 and srtd[5] == 9
+    ok("collections.sorted ascending")
+else
+    fail("collections.sorted", str(srtd[0]))
+
+# Original untouched
+if unsorted[0] == 5
+    ok("sorted() non-destructive")
+else
+    fail("sorted() non-destructive", str(unsorted[0]))
+
+println("\n── collections: chunk ──")
+
+var chunked = collections.chunk([1, 2, 3, 4, 5, 6], 2)
+if len(chunked) == 3 and len(chunked[0]) == 2
+    ok("collections.chunk(6 items, 2) → 3 chunks")
+else
+    fail("collections.chunk", str(len(chunked)))
+
+var chunked2 = collections.chunk([1, 2, 3, 4, 5], 2)
+if len(chunked2) == 3 and len(chunked2[2]) == 1
+    ok("collections.chunk with remainder")
+else
+    fail("collections.chunk remainder", str(len(chunked2)))
+
+println("\n── collections: take / drop ──")
+
+var taken = collections.take([1, 2, 3, 4, 5], 3)
+if len(taken) == 3 and taken[2] == 3
+    ok("collections.take(5, 3) → [1,2,3]")
+else
+    fail("collections.take", str(len(taken)))
+
+var dropped = collections.drop([1, 2, 3, 4, 5], 2)
+if len(dropped) == 3 and dropped[0] == 3
+    ok("collections.drop(5, 2) → [3,4,5]")
+else
+    fail("collections.drop", str(len(dropped)))
+
+println("\n── collections: sum / product ──")
+
+if collections.sum([1, 2, 3, 4, 5]) == 15
+    ok("collections.sum([1..5]) == 15")
+else
+    fail("collections.sum", str(collections.sum([1, 2, 3, 4, 5])))
+
+if collections.product([1, 2, 3, 4, 5]) == 120
+    ok("collections.product([1..5]) == 120")
+else
+    fail("collections.product", str(collections.product([1, 2, 3, 4, 5])))
+
+println("\n── collections: any / all / none ──")
+
+if collections.any([false, false, true])
+    ok("collections.any([..true..]) == true")
+else
+    fail("collections.any", "false")
+
+if collections.any([false, false]) == false
+    ok("collections.any all-false == false")
+else
+    fail("collections.any all-false", "true")
+
+if collections.all([true, true, true])
+    ok("collections.all([true..]) == true")
+else
+    fail("collections.all", "false")
+
+if collections.all([true, false]) == false
+    ok("collections.all with false == false")
+else
+    fail("collections.all with false", "true")
+
+if collections.none([false, false])
+    ok("collections.none all-false == true")
+else
+    fail("collections.none", "false")
+
+println("\n── collections: first / last ──")
+
+var arr_fl = [10, 20, 30]
+var first_ok = false
+match collections.first(arr_fl)
+    case Some(v) => first_ok = (v == 10)
+    case None    => first_ok = false
+if first_ok
+    ok("collections.first => Some(10)")
+else
+    fail("collections.first", "not Some(10)")
+
+var last_ok = false
+match collections.last(arr_fl)
+    case Some(v) => last_ok = (v == 30)
+    case None    => last_ok = false
+if last_ok
+    ok("collections.last => Some(30)")
+else
+    fail("collections.last", "not Some(30)")
+
+println("\n── collections: concat / repeat ──")
+
+var ca = collections.concat([1, 2], [3, 4])
+if len(ca) == 4 and ca[3] == 4
+    ok("collections.concat")
+else
+    fail("collections.concat", str(len(ca)))
+
+var cr = collections.repeat([1, 2], 3)
+if len(cr) == 6 and cr[4] == 1
+    ok("collections.repeat([1,2], 3) → 6 items")
+else
+    fail("collections.repeat", str(len(cr)))
+
+println("\n── collections: transpose ──")
+
+var matrix = [[1, 2, 3], [4, 5, 6]]
+var transposed = collections.transpose(matrix)
+if len(transposed) == 3 and transposed[0][0] == 1 and transposed[0][1] == 4
+    ok("collections.transpose 2×3 → 3×2")
+else
+    fail("collections.transpose", str(len(transposed)))
+
+println("\n── collections: count_by ──")
+
+var items_arr = [1, 2, 1, 3, 1]
+if collections.count_by(items_arr, 1) == 3
+    ok("collections.count_by value=1 → 3")
+else
+    fail("collections.count_by", str(collections.count_by(items_arr, 1)))
+
+
+# ═══════════════════════════════════════════════════════════════
+# RIEPILOGO
+# ═══════════════════════════════════════════════════════════════
+println("")
+println("══════════════════════════════════════════")
+println(f"  Risultati v0.2.11: {passed} ✅  {failed} ❌")
+println("══════════════════════════════════════════")
+
+if failed == 0
+    println("  🎉 Tutti i test superati!")
+else
+    println(f"  ⚠️  {failed} test falliti")

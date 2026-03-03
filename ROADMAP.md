@@ -4,7 +4,7 @@ Ultimo aggiornamento: 2026-02-26
 
 ---
 
-## Stato attuale: v0.2.10 ✅
+## Stato attuale: v0.2.11 ✅
 
 ---
 
@@ -76,7 +76,7 @@ Ultimo aggiornamento: 2026-02-26
 | v0.2.8 ✅ | Match expression: bugfix completo — parser (case opzionale, Dedent orfano), compiler (patch offset, Swap+Pop, slot numbering), VM (opcode Swap) |
 | v0.2.9 ✅ | Mutable upvalue fix: `Rc<RefCell<Value>>` — closure counter/accumulatore funzionanti, mutazioni persistono tra chiamate |
 | v0.2.10 ✅ | Error handling: `?` operator (Propagate), metodi `.is_ok()`, `.is_err()`, `.unwrap()`, `.unwrap_or()` su Result e Option |
-| v0.2.11 | Standard library v0: math, io, string, collections |
+| v0.2.11 ✅ | Standard library v0: math, io, string, collections |
 | v0.2.12 | Benchmark suite v1 + documentation v1 |
 
 **Benchmark target (v0.2.10):** 5× speedup su fibonacci rispetto v0.1. Array sum di 1M floats in <5ms.
