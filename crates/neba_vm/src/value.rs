@@ -1,7 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+
+use indexmap::IndexMap;
 
 use crate::chunk::FnProto;
 
@@ -10,8 +13,8 @@ use crate::chunk::FnProto;
 pub type RcArray    = Rc<RefCell<Vec<Value>>>;
 pub type RcInstance = Rc<RefCell<Instance>>;
 pub type RcClosure  = Rc<Closure>;
-/// Dict: mappa chiave→valore con ordine di inserimento preservato.
-pub type RcDict     = Rc<RefCell<Vec<(Value, Value)>>>;
+/// Dict: mappa chiave→valore con ordine di inserimento preservato (IndexMap O(1) lookup).
+pub type RcDict     = Rc<RefCell<IndexMap<Value, Value>>>;
 
 // ── TypedArray (v0.2.6) ───────────────────────────────────────────────────
 
@@ -310,12 +313,44 @@ impl PartialEq for Value {
             (Value::Err_(a),  Value::Err_(b))  => a == b,
             (Value::Array(a), Value::Array(b)) => *a.borrow() == *b.borrow(),
             (Value::Dict(a),  Value::Dict(b))  => *a.borrow() == *b.borrow(),
-            // TypedArray: uguaglianza per identità (stesso Rc) — confronto elemento per elemento in futuro
+            // TypedArray: uguaglianza per identità (stesso Rc)
             (Value::TypedArray(a), Value::TypedArray(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
 }
+
+/// Value come chiave di HashMap/IndexMap — necessario per Dict O(1).
+/// Float viene hashato come bit pattern (NaN ≠ NaN è accettabile per chiavi di dict).
+impl Eq for Value {}
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Value::Int(n)    => { 0u8.hash(state); n.hash(state); }
+            Value::Float(f)  => { 1u8.hash(state); f.to_bits().hash(state); }
+            Value::Bool(b)   => { 2u8.hash(state); b.hash(state); }
+            Value::Str(s)    => { 3u8.hash(state); s.hash(state); }
+            Value::None      => { 4u8.hash(state); }
+            // Tipi non scalari: hash per identità del puntatore
+            Value::Array(a)  => { 5u8.hash(state); Rc::as_ptr(a).hash(state); }
+            Value::Dict(d)   => { 6u8.hash(state); Rc::as_ptr(d).hash(state); }
+            Value::Instance(i) => { 7u8.hash(state); Rc::as_ptr(i).hash(state); }
+            Value::Closure(c)  => { 8u8.hash(state); Rc::as_ptr(c).hash(state); }
+            Value::TypedArray(t) => { 9u8.hash(state); Rc::as_ptr(t).hash(state); }
+            Value::Some_(v)  => { 10u8.hash(state); v.hash(state); }
+            Value::Ok_(v)    => { 11u8.hash(state); v.hash(state); }
+            Value::Err_(v)   => { 12u8.hash(state); v.hash(state); }
+            Value::NativeFn(n, _) => { 13u8.hash(state); n.hash(state); }
+            Value::IntRange(s, e, i) => { 14u8.hash(state); s.hash(state); e.hash(state); i.hash(state); }
+            Value::__Iter(a, i) => { 15u8.hash(state); Rc::as_ptr(a).hash(state); i.hash(state); }
+            Value::__Return(v)  => { 16u8.hash(state); v.hash(state); }
+            Value::__Break      => { 17u8.hash(state); }
+            Value::__Continue   => { 18u8.hash(state); }
+        }
+    }
+}
+
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -384,9 +419,17 @@ impl Value {
         Value::Array(Rc::new(RefCell::new(v)))
     }
 
-    /// Costruisce un Value::Dict da un Vec<(Value, Value)>
+    /// Costruisce un Value::Dict da una lista di coppie (chiave, valore).
+    /// Preserva l'ordine di inserimento; in caso di chiavi duplicate l'ultima vince.
     pub fn dict(pairs: Vec<(Value, Value)>) -> Self {
-        Value::Dict(Rc::new(RefCell::new(pairs)))
+        let mut map = IndexMap::with_capacity(pairs.len());
+        for (k, v) in pairs { map.insert(k, v); }
+        Value::Dict(Rc::new(RefCell::new(map)))
+    }
+
+    /// Costruisce un Value::Dict direttamente da un IndexMap.
+    pub fn dict_from_map(map: IndexMap<Value, Value>) -> Self {
+        Value::Dict(Rc::new(RefCell::new(map)))
     }
 
     /// Costruisce un Value::TypedArray da TypedArrayData

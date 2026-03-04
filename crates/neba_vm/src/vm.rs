@@ -426,7 +426,7 @@ impl Vm {
                     let method = match &obj {
                         Value::Instance(inst) => inst.borrow().fields.get(&name).cloned()
                             .ok_or_else(|| VmError::UnknownField { type_name: inst.borrow().class_name.clone(), field: name.clone() })?,
-                        Value::Dict(d) => { let key = Value::str(&name); d.borrow().iter().find(|(k,_)| k == &key).map(|(_,v)| v.clone())
+                        Value::Dict(d) => { let key = Value::str(&name); d.borrow().get(&key).cloned()
                             .ok_or_else(|| VmError::UnknownField { type_name: "Dict".into(), field: name.clone() })? }
                         other => return Err(VmError::UnknownField { type_name: other.type_name().to_string(), field: name.clone() }),
                     };
@@ -501,7 +501,7 @@ impl Vm {
                     match (obj, &idx_v) {
                         (Value::Array(arr), Value::Int(i)) => { let len = arr.borrow().len(); let i = self.resolve_idx(*i, len)?; arr.borrow_mut()[i] = val; }
                         (Value::TypedArray(t), Value::Int(i)) => { let len = t.borrow().len(); let i = crate::value::resolve_idx(*i, len).map_err(VmError::Generic)?; t.borrow_mut().set(i, val).map_err(VmError::TypeError)?; }
-                        (Value::Dict(d), key) => { let key = key.clone(); let mut d = d.borrow_mut(); if let Some(e) = d.iter_mut().find(|(k,_)| k == &key) { e.1 = val; } else { d.push((key, val)); } }
+                        (Value::Dict(d), key) => { d.borrow_mut().insert(key.clone(), val); }
                         _ => return Err(VmError::TypeError("index assignment requires Array, TypedArray or Dict".into())),
                     }
                 }
@@ -607,7 +607,7 @@ impl Vm {
                         // v0.2.14: IntRange è già lazy, non serve convertire in Vec
                         Value::IntRange(_, _, _) => { push!(v); continue 'dispatch; }
                         Value::Array(a) => a,
-                        Value::Dict(d)  => { let pairs: Vec<Value> = d.borrow().iter().map(|(k,v)| Value::array(vec![k.clone(),v.clone()])).collect(); Rc::new(RefCell::new(pairs)) }
+                        Value::Dict(d)  => { let pairs: Vec<Value> = d.borrow().iter().map(|(k,v): (&Value,&Value)| Value::array(vec![k.clone(),v.clone()])).collect(); Rc::new(RefCell::new(pairs)) }
                         Value::TypedArray(t) => { let d = t.borrow(); let elems: Vec<Value> = (0..d.len()).map(|i| d.get(i).unwrap()).collect(); Rc::new(RefCell::new(elems)) }
                         Value::Str(s)   => { let chars: Vec<Value> = s.chars().map(|c| Value::str(c.to_string())).collect(); Rc::new(RefCell::new(chars)) }
                         _ => return Err(VmError::TypeError(format!("'{}' is not iterable", v.type_name()))),
@@ -755,7 +755,7 @@ impl Vm {
             }
             Value::Dict(d) => {
                 let key = Value::str(field);
-                d.borrow().iter().find(|(k,_)| k == &key).map(|(_,v)| v.clone())
+                d.borrow().get(&key).cloned()
                     .ok_or_else(|| VmError::UnknownField { type_name: "Dict".into(), field: field.to_string() })
             }
             Value::Array(arr) => match field {
@@ -773,8 +773,7 @@ impl Vm {
     fn eval_index(&self, obj: Value, idx: Value) -> VmResult {
         match &obj {
             Value::Dict(d) => {
-                let d = d.borrow();
-                d.iter().find(|(k,_)| k == &idx).map(|(_,v)| v.clone())
+                d.borrow().get(&idx).cloned()
                     .ok_or_else(|| VmError::Generic(format!("key not found in Dict: {}", idx)))
             }
             Value::TypedArray(t) => {
@@ -824,7 +823,7 @@ impl Vm {
     fn eval_in(&self, needle: Value, haystack: Value) -> VmResult<bool> {
         match haystack {
             Value::Array(arr) => Ok(arr.borrow().contains(&needle)),
-            Value::Dict(d)    => Ok(d.borrow().iter().any(|(k,_)| k == &needle)),
+            Value::Dict(d)    => Ok(d.borrow().contains_key(&needle)),
             Value::Str(s)     => match &needle { Value::Str(n) => Ok(s.contains(n.as_str())), _ => Ok(false) },
             Value::IntRange(start, end, inclusive) => match &needle {
                 Value::Int(n) => Ok(if inclusive { *n >= start && *n <= end } else { *n >= start && *n < end }),
@@ -990,7 +989,7 @@ impl Vm {
                             let arr = match v {
                                 Value::IntRange(_, _, _) => { ps!(v); continue; }
                                 Value::Array(a) => a,
-                                Value::Dict(d) => { let p: Vec<Value> = d.borrow().iter().map(|(k,v)| Value::array(vec![k.clone(),v.clone()])).collect(); Rc::new(RefCell::new(p)) }
+                                Value::Dict(d) => { let p: Vec<Value> = d.borrow().iter().map(|(k,v): (&Value,&Value)| Value::array(vec![k.clone(),v.clone()])).collect(); Rc::new(RefCell::new(p)) }
                                 Value::TypedArray(t) => { let d = t.borrow(); let e: Vec<Value> = (0..d.len()).map(|i| d.get(i).unwrap()).collect(); Rc::new(RefCell::new(e)) }
                                 Value::Str(s) => { let ch: Vec<Value> = s.chars().map(|c| Value::str(c.to_string())).collect(); Rc::new(RefCell::new(ch)) }
                                 _ => return Err(VmError::TypeError(format!("'{}' is not iterable", v.type_name()))),
@@ -1037,7 +1036,7 @@ impl Vm {
                             match (obj, &idx_v) {
                                 (Value::Array(arr), Value::Int(i)) => { let len = arr.borrow().len(); let i = self.resolve_idx(*i,len)?; arr.borrow_mut()[i] = val; }
                                 (Value::TypedArray(t), Value::Int(i)) => { let len = t.borrow().len(); let i = crate::value::resolve_idx(*i,len).map_err(VmError::Generic)?; t.borrow_mut().set(i,val).map_err(VmError::TypeError)?; }
-                                (Value::Dict(d), key) => { let key = key.clone(); let mut d = d.borrow_mut(); if let Some(e) = d.iter_mut().find(|(k,_)| k==&key) { e.1=val; } else { d.push((key,val)); } }
+                                (Value::Dict(d), key) => { d.borrow_mut().insert(key.clone(), val); }
                                 _ => return Err(VmError::TypeError("index assignment requires Array, TypedArray or Dict".into())),
                             }
                         }
@@ -1066,7 +1065,7 @@ impl Vm {
                             let method = match &obj {
                                 Value::Instance(inst) => inst.borrow().fields.get(&name).cloned()
                                     .ok_or_else(|| VmError::UnknownField { type_name: inst.borrow().class_name.clone(), field: name.clone() })?,
-                                Value::Dict(d) => { let key = Value::str(&name); d.borrow().iter().find(|(k,_)| k==&key).map(|(_,v)| v.clone())
+                                Value::Dict(d) => { let key = Value::str(&name); d.borrow().get(&key).cloned()
                                     .ok_or_else(|| VmError::UnknownField { type_name: "Dict".into(), field: name.clone() })? }
                                 other => return Err(VmError::UnknownField { type_name: other.type_name().to_string(), field: name.clone() }),
                             };

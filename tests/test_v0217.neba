@@ -1,0 +1,81 @@
+# Test Dict con IndexMap
+var ok = 0
+var fail = 0
+fn check(label, got, expected)
+    if got == expected
+        ok += 1
+    else
+        fail += 1
+        println(f"FAIL [{label}]: got {got}, expected {expected}")
+
+# Creazione e accesso
+let d = {"a": 1, "b": 2, "c": 3}
+check("get a", d["a"], 1)
+check("get c", d["c"], 3)
+
+# Inserimento e aggiornamento
+d["d"] = 4
+d["a"] = 99
+check("update a", d["a"], 99)
+check("insert d", d["d"], 4)
+
+# len
+check("len", len(d), 4)
+
+# keys/values/items
+let ks = keys(d)
+check("keys len", len(ks), 4)
+
+# contains (in)
+check("in dict", "b" in d, true)
+check("not in dict", "z" in d, false)
+
+# has_key
+check("has_key b", has_key(d, "b"), true)
+check("has_key z", has_key(d, "z"), false)
+
+# del_key
+del_key(d, "b")
+check("len after del", len(d), 3)
+check("b gone", has_key(d, "b"), false)
+
+# for loop su dict → coppie [k, v]
+var sum = 0
+let d2 = {"x": 10, "y": 20, "z": 30}
+for pair in d2
+    sum += pair[1]
+check("for dict sum", sum, 60)
+
+# copy
+let d3 = {"p": 1, "q": 2}
+let d4 = copy(d3)
+d4["p"] = 999
+check("copy isolates", d3["p"], 1)
+
+# Dict con chiavi Int
+let di = {1: "uno", 2: "due", 3: "tre"}
+check("int key", di[1], "uno")
+di[4] = "quattro"
+check("int key insert", di[4], "quattro")
+
+println(f"\n=== Dict tests: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL TESTS PASSED")
+
+# ─── Benchmark Dict O(1) vs O(n) ────────────────────────────────────────
+# 10000 insert + 10000 lookup — con Vec sarebbe lento, con IndexMap O(1)
+let big = {}
+var i = 0
+while i < 1000
+    big[i] = i * 2
+    i += 1
+
+var found = 0
+i = 0
+while i < 1000
+    if has_key(big, i)
+        found += 1
+    i += 1
+check("big dict found", found, 1000)
+check("big dict val", big[500], 1000)
+println(f"\n=== Dict v0.2.17 extended: {ok} passed, {fail} failed ===")

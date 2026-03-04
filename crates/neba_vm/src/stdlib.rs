@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::value::{Value, RcDict};
+use crate::value::Value;
 
 pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
     macro_rules! reg {
@@ -329,7 +329,7 @@ fn neba_ord(args: &[Value]) -> Result<Value, String> {
 fn neba_copy(args: &[Value]) -> Result<Value, String> {
     match args.first() {
         Some(Value::Array(a))      => Ok(Value::array(a.borrow().clone())),
-        Some(Value::Dict(d))       => Ok(Value::dict(d.borrow().clone())),
+        Some(Value::Dict(d))       => Ok(Value::dict_from_map(d.borrow().clone())),
         Some(Value::TypedArray(t)) => Ok(Value::typed_array(t.borrow().clone())),
         Some(v) => Err(format!("copy() not supported for {}", v.type_name())),
         None    => Err("copy() requires 1 argument".into()),
@@ -396,7 +396,7 @@ fn neba_items(args: &[Value]) -> Result<Value, String> {
 /// has_key(dict, key) → Bool
 fn neba_has_key(args: &[Value]) -> Result<Value, String> {
     match args {
-        [Value::Dict(d), key] => Ok(Value::Bool(d.borrow().iter().any(|(k, _)| k == key))),
+        [Value::Dict(d), key] => Ok(Value::Bool(d.borrow().contains_key(key))),
         _ => Err("has_key(dict, key) requires Dict and a key".into()),
     }
 }
@@ -405,10 +405,7 @@ fn neba_has_key(args: &[Value]) -> Result<Value, String> {
 fn neba_del_key(args: &[Value]) -> Result<Value, String> {
     match args {
         [Value::Dict(d), key] => {
-            let mut d = d.borrow_mut();
-            if let Some(pos) = d.iter().position(|(k, _)| k == key) {
-                d.remove(pos);
-            }
+            d.borrow_mut().shift_remove(key);
             Ok(Value::None)
         }
         _ => Err("del_key(dict, key) requires Dict and a key".into()),

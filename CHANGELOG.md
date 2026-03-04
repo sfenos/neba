@@ -3,6 +3,36 @@
 Tutte le modifiche rilevanti del progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [v0.2.17] — 2026-03-04 — Dict → IndexMap (O(1) lookup)
+
+### Ottimizzazioni
+
+**Dict da `Vec<(Value,Value)>` a `IndexMap<Value,Value>`:**
+- Lookup/insert/delete da O(n) a **O(1)**
+- Ordine di inserimento preservato (come Python `dict`)
+- Dipendenza `indexmap = "=2.2.6"` (compatibile con rustc 1.75+)
+
+**`Hash` implementato per `Value`:**
+- Necessario per usare `Value` come chiave di `IndexMap`
+- Float: hash sui bit pattern (NaN-safe); heap types: hash sul puntatore Rc
+- Tutti i 19 variant coperti
+
+**API Dict invariata, performance migliorata:**
+- `d[key]`, `d[key]=val`, `key in d`, `has_key`, `del_key` → tutti O(1)
+
+### Test
+- 18 test in `tests/test_v0217.neba`, 208/208 unit test passati
+
+## [v0.2.16] — 2026-03-04 — OOP: operatore `is` corretto
+
+### Funzionalità
+- `obj is ClassName` → confronto nominale corretto (era sempre false)
+- `obj is TraitName` → controlla lista traits iniettata dal costruttore (era RuntimeError)
+- Nuovo opcode `SetTraits`, `impl_traits_registry` nel Compiler, `Instance.traits: Vec<String>`
+
+### Test
+- 16 test in `tests/test_v0216.neba`, 208/208 unit test passati
+
 ## [v0.2.15] — 2026-03-04 — Bug fixes critici + globali mancanti
 
 ### Bug risolti

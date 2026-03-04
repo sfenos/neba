@@ -6,3 +6,4 @@ edition.workspace = true
 [dependencies]
 neba_lexer  = { path = "../neba_lexer" }
 neba_parser = { path = "../neba_parser" }
+indexmap    = "=2.2.6"
