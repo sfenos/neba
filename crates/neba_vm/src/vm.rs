@@ -310,7 +310,15 @@ impl Vm {
                                 if argc != 2 { return Err(VmError::Generic("map(array, fn) requires 2 arguments".into())); }
                                 let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
                                 let (arr, cb) = (args[0].clone(), args[1].clone());
-                                let items = match &arr { Value::Array(a) => a.borrow().clone(), _ => return Err(VmError::TypeError("map: first argument must be Array".into())) };
+                                let items: Vec<Value> = match &arr {
+                                    Value::Array(a) => a.borrow().clone(),
+                                    Value::IntRange(s, e, inc) => {
+                                        let (s, e, inc) = (*s, *e, *inc);
+                                        if inc { (s..=e).map(Value::Int).collect() }
+                                        else   { (s..e).map(Value::Int).collect() }
+                                    }
+                                    _ => return Err(VmError::TypeError(format!("map: first argument must be Array or Range, got {}", arr.type_name()))),
+                                };
                                 let mut result = Vec::with_capacity(items.len());
                                 save_ip!();
                                 for item in items { result.push(self.call_value_sync(cb.clone(), vec![item])?); }
@@ -321,7 +329,15 @@ impl Vm {
                                 if argc != 2 { return Err(VmError::Generic("filter(array, fn) requires 2 arguments".into())); }
                                 let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
                                 let (arr, cb) = (args[0].clone(), args[1].clone());
-                                let items = match &arr { Value::Array(a) => a.borrow().clone(), _ => return Err(VmError::TypeError("filter: first argument must be Array".into())) };
+                                let items: Vec<Value> = match &arr {
+                                    Value::Array(a) => a.borrow().clone(),
+                                    Value::IntRange(s, e, inc) => {
+                                        let (s, e, inc) = (*s, *e, *inc);
+                                        if inc { (s..=e).map(Value::Int).collect() }
+                                        else   { (s..e).map(Value::Int).collect() }
+                                    }
+                                    _ => return Err(VmError::TypeError(format!("filter: first argument must be Array or Range, got {}", arr.type_name()))),
+                                };
                                 let mut result = Vec::new();
                                 save_ip!();
                                 for item in items { let k = self.call_value_sync(cb.clone(), vec![item.clone()])?; if k.is_truthy() { result.push(item); } }
@@ -332,7 +348,15 @@ impl Vm {
                                 if argc != 2 && argc != 3 { return Err(VmError::Generic("reduce requires 2-3 arguments".into())); }
                                 let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
                                 let (arr, cb) = (args[0].clone(), args[1].clone());
-                                let items = match &arr { Value::Array(a) => a.borrow().clone(), _ => return Err(VmError::TypeError("reduce: first argument must be Array".into())) };
+                                let items: Vec<Value> = match &arr {
+                                    Value::Array(a) => a.borrow().clone(),
+                                    Value::IntRange(s, e, inc) => {
+                                        let (s, e, inc) = (*s, *e, *inc);
+                                        if inc { (s..=e).map(Value::Int).collect() }
+                                        else   { (s..e).map(Value::Int).collect() }
+                                    }
+                                    _ => return Err(VmError::TypeError(format!("reduce: first argument must be Array or Range, got {}", arr.type_name()))),
+                                };
                                 let (mut acc, si) = if argc == 3 { (args[2].clone(), 0) }
                                     else { if items.is_empty() { return Err(VmError::Generic("reduce() of empty array with no initial value".into())); } (items[0].clone(), 1) };
                                 save_ip!();

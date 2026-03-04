@@ -3,6 +3,60 @@
 Tutte le modifiche rilevanti del progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [v0.2.15] — 2026-03-04 — Bug fixes critici + globali mancanti
+
+### Bug risolti
+
+- **BUG-1 — `__init__` chiamato due volte**: il blocco di compilazione della chiamata a
+  `__init__` era duplicato letteralmente in `compile_class`. Ogni costruzione di oggetto con
+  `__init__` eseguiva l'inizializzatore due volte. Rimosso il secondo blocco identico.
+
+- **BUG-2 — `kwargs` silenziosamente sbagliati**: le chiamate con argomenti nominati
+  (`f(x=1, y=2)`) compilavano scartando i nomi, passando i valori nell'ordine del sito di
+  chiamata. `greet(greeting="Hi", name="Bob")` produceva `"Bob, Hi!"` invece di `"Hi, Bob!"`.
+  Ora emette un errore a compile-time esplicito: *"named arguments (kwargs) not yet supported"*.
+
+- **BUG-3 — costruttore con parametri — `arity` errata e `LoadLocal` su slot sbagliati**:
+  il `FnProto` del costruttore aveva `arity = 0` quando `__init__` aveva parametri. I locali
+  venivano registrati dopo l'emissione del bytecode, causando `LoadLocal` su slot non inizializzati.
+  Fix: i locali dei parametri vengono registrati **prima** di emettere qualsiasi bytecode; il
+  `FnProto` viene creato con `arity = arity_di___init__`.
+
+- **BUG-4 — `compile_while` mancava di `loop_local_counts.push`**: il metodo faceva
+  `loop_local_counts.pop()` in fondo senza mai fare `push`, rimuovendo il contatore del
+  `for` loop più interno in caso di `while` annidato in `for`. Aggiunto `push(0)` all'inizio.
+
+### Funzionalità aggiunte
+
+**`IntRange` nei HOF e in `len()`:**
+- `map(0..N, fn)`, `filter(0..N, fn)`, `reduce(0..N, fn, init)` ora accettano IntRange
+- `len(0..10)` → `10`, `len(0..=10)` → `11`
+- `sum(1..=100)` → `5050` (calcolato con formula di Gauss, O(1))
+
+**Nuove funzioni globali:**
+| Funzione | Descrizione |
+|---|---|
+| `sum(array\|range\|typedarray)` | Somma elementi; usa formula Gauss per range |
+| `zip(a, b)` | Combina due array in array di coppie |
+| `enumerate(array, start=0)` | Array di `[index, value]` |
+| `sorted(array)` | Nuova array ordinata (non modifica l'originale) |
+| `any(array)` | `true` se almeno un elemento è truthy |
+| `all(array)` | `true` se tutti gli elementi sono truthy |
+| `chr(n)` | Carattere Unicode dal codepoint |
+| `ord(s)` | Codepoint Unicode del primo carattere |
+| `copy(array\|dict\|typedarray)` | Copia superficiale |
+| `hex(n)` | `"0xff"` |
+| `bin(n)` | `"0b1010"` |
+| `oct(n)` | `"0o17"` |
+
+**Fix `sum()` unificato:** eliminata la registrazione duplicata `ta_sum` che sovrascriveva
+`neba_sum`. La funzione `sum()` globale ora gestisce `Array`, `IntRange`, e `TypedArray`
+in un'unica implementazione.
+
+### Test
+- 44 nuovi test in `tests/test_v0215.neba`
+- 208/208 test unit passati (nessuna regressione)
+
 ---
 
 ## [0.2.13] — 2026-03-03

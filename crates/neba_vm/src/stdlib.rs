@@ -24,6 +24,19 @@ pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
     reg!("pop",      neba_pop);
     reg!("assert",   neba_assert);
     reg!("clock",    neba_clock);
+    // ── Globali aggiuntivi (v0.2.15) ──────────────────────────────────────
+    reg!("sum",       neba_sum);
+    reg!("zip",       neba_zip);
+    reg!("enumerate", neba_enumerate);
+    reg!("sorted",    neba_sorted);
+    reg!("any",       neba_any);
+    reg!("all",       neba_all);
+    reg!("chr",       neba_chr);
+    reg!("ord",       neba_ord);
+    reg!("copy",      neba_copy);
+    reg!("hex",       neba_hex);
+    reg!("bin",       neba_bin);
+    reg!("oct",       neba_oct);
     // ── Dict ──────────────────────────────────────────────────────────────
     reg!("keys",     neba_keys);
     reg!("values",   neba_values);
@@ -70,10 +83,14 @@ fn neba_input(args: &[Value]) -> Result<Value, String> {
 }
 fn neba_len(args: &[Value]) -> Result<Value, String> {
     match args.first() {
-        Some(Value::Array(a))     => Ok(Value::Int(a.borrow().len() as i64)),
-        Some(Value::Str(s))       => Ok(Value::Int(s.chars().count() as i64)),
-        Some(Value::Dict(d))      => Ok(Value::Int(d.borrow().len() as i64)),
-        Some(Value::TypedArray(t))=> Ok(Value::Int(t.borrow().len() as i64)),
+        Some(Value::Array(a))      => Ok(Value::Int(a.borrow().len() as i64)),
+        Some(Value::Str(s))        => Ok(Value::Int(s.chars().count() as i64)),
+        Some(Value::Dict(d))       => Ok(Value::Int(d.borrow().len() as i64)),
+        Some(Value::TypedArray(t)) => Ok(Value::Int(t.borrow().len() as i64)),
+        Some(Value::IntRange(s, e, inc)) => {
+            let len = if *inc { (e - s + 1).max(0) } else { (e - s).max(0) };
+            Ok(Value::Int(len))
+        }
         Some(v) => Err(format!("len() not supported for {}", v.type_name())),
         None    => Err("len() requires 1 argument".into()),
     }
@@ -177,6 +194,170 @@ fn neba_clock(_args: &[Value]) -> Result<Value, String> {
         .map_err(|e| e.to_string())?
         .as_secs_f64();
     Ok(Value::Float(secs))
+}
+
+// ── Nuove funzioni globali v0.2.15 ────────────────────────────────────────
+
+/// sum(array|range|typedarray) → Int|Float
+fn neba_sum(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::TypedArray(t)) => {
+            let d = t.borrow();
+            return Ok(match &*d {
+                TypedArrayData::Float64(v) => Value::Float(v.iter().sum()),
+                TypedArrayData::Float32(v) => Value::Float(v.iter().map(|&x| x as f64).sum()),
+                TypedArrayData::Int64(v)   => Value::Int(v.iter().sum()),
+                TypedArrayData::Int32(v)   => Value::Int(v.iter().map(|&x| x as i64).sum()),
+            });
+        }
+        Some(Value::IntRange(s, e, inc)) => {
+            // Formula di Gauss — O(1), zero allocazioni
+            let (s, e, inc) = (*s, *e, *inc);
+            return Ok(if inc {
+                let n = (e - s + 1).max(0);
+                Value::Int(n * (s + e) / 2)
+            } else {
+                let n = (e - s).max(0);
+                if n == 0 { Value::Int(0) } else { Value::Int(n * (s + (e - 1)) / 2) }
+            });
+        }
+        Some(Value::Array(a)) => {
+            let arr = a.borrow();
+            if arr.is_empty() { return Ok(Value::Int(0)); }
+            let mut isum = 0i64;
+            let mut fsum = 0.0f64;
+            let mut is_float = false;
+            for v in arr.iter() {
+                match v {
+                    Value::Int(n)   => { isum += n; fsum += *n as f64; }
+                    Value::Float(f) => { fsum += f; is_float = true; }
+                    _ => return Err(format!("sum(): non-numeric element {}", v.type_name())),
+                }
+            }
+            Ok(if is_float { Value::Float(fsum) } else { Value::Int(isum) })
+        }
+        _ => Err("sum() requires Array, Range, or TypedArray".into()),
+    }
+}
+
+/// zip(a, b) → Array di [a[i], b[i]]
+fn neba_zip(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(a), Value::Array(b)] => {
+            let a = a.borrow(); let b = b.borrow();
+            let result = a.iter().zip(b.iter())
+                .map(|(x, y)| Value::array(vec![x.clone(), y.clone()]))
+                .collect();
+            Ok(Value::array(result))
+        }
+        _ => Err("zip(a, b) requires 2 Arrays".into()),
+    }
+}
+
+/// enumerate(array, start=0) → Array di [index, value]
+fn neba_enumerate(args: &[Value]) -> Result<Value, String> {
+    let (arr, start) = match args {
+        [Value::Array(a)]                    => (a, 0i64),
+        [Value::Array(a), Value::Int(s)]     => (a, *s),
+        _ => return Err("enumerate(array, start=0) requires Array".into()),
+    };
+    let result = arr.borrow().iter().enumerate()
+        .map(|(i, v)| Value::array(vec![Value::Int(i as i64 + start), v.clone()]))
+        .collect();
+    Ok(Value::array(result))
+}
+
+/// sorted(array) → nuova Array ordinata (non modifica l'originale)
+fn neba_sorted(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(a)) => {
+            let mut v = a.borrow().clone();
+            v.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+            Ok(Value::array(v))
+        }
+        _ => Err("sorted(array) requires Array".into()),
+    }
+}
+
+/// any(array) → Bool: true se almeno un elemento è truthy
+fn neba_any(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(a)) => Ok(Value::Bool(a.borrow().iter().any(|v| v.is_truthy()))),
+        _ => Err("any(array) requires Array".into()),
+    }
+}
+
+/// all(array) → Bool: true se tutti gli elementi sono truthy
+fn neba_all(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(a)) => Ok(Value::Bool(a.borrow().iter().all(|v| v.is_truthy()))),
+        _ => Err("all(array) requires Array".into()),
+    }
+}
+
+/// chr(n) → Str: carattere Unicode con codepoint n
+fn neba_chr(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Int(n)) => {
+            let n = *n;
+            if n < 0 || n > 0x10FFFF {
+                return Err(format!("chr(): codepoint {} out of range 0–1114111", n));
+            }
+            match char::from_u32(n as u32) {
+                Some(c) => Ok(Value::str(c.to_string())),
+                None    => Err(format!("chr(): {} is not a valid Unicode codepoint", n)),
+            }
+        }
+        _ => Err("chr(n) requires Int".into()),
+    }
+}
+
+/// ord(s) → Int: codepoint Unicode del primo carattere
+fn neba_ord(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Str(s)) => {
+            match s.chars().next() {
+                Some(c) => Ok(Value::Int(c as i64)),
+                None    => Err("ord(): empty string".into()),
+            }
+        }
+        _ => Err("ord(s) requires Str".into()),
+    }
+}
+
+/// copy(array) → Array: copia superficiale dell'array
+fn neba_copy(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(a))      => Ok(Value::array(a.borrow().clone())),
+        Some(Value::Dict(d))       => Ok(Value::dict(d.borrow().clone())),
+        Some(Value::TypedArray(t)) => Ok(Value::typed_array(t.borrow().clone())),
+        Some(v) => Err(format!("copy() not supported for {}", v.type_name())),
+        None    => Err("copy() requires 1 argument".into()),
+    }
+}
+
+/// hex(n) → Str: rappresentazione esadecimale ("0x1f")
+fn neba_hex(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Int(n)) => Ok(Value::str(format!("0x{:x}", n))),
+        _ => Err("hex(n) requires Int".into()),
+    }
+}
+
+/// bin(n) → Str: rappresentazione binaria ("0b1010")
+fn neba_bin(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Int(n)) => Ok(Value::str(format!("0b{:b}", n))),
+        _ => Err("bin(n) requires Int".into()),
+    }
+}
+
+/// oct(n) → Str: rappresentazione ottale ("0o17")
+fn neba_oct(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Int(n)) => Ok(Value::str(format!("0o{:o}", n))),
+        _ => Err("oct(n) requires Int".into()),
+    }
 }
 
 // ── Dict functions ────────────────────────────────────────────────────────
@@ -339,8 +520,7 @@ pub fn register_typed_array_globals(globals: &mut std::collections::HashMap<Stri
     reg!("ones",      ta_ones);
     reg!("fill",      ta_fill);
     reg!("linspace",  ta_linspace);
-    // Operazioni
-    reg!("sum",       ta_sum);
+    // Operazioni (sum è gestita da neba_sum globale che copre Array/Range/TypedArray)
     reg!("mean",      ta_mean);
     reg!("dot",       ta_dot);
     reg!("min_elem",  ta_min_elem);

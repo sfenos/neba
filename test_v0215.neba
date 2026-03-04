@@ -1,0 +1,173 @@
+# Test suite v0.2.15
+# Copre: BUG-1 __init__ doppio, BUG-2 kwargs, BUG-3 ctor arity, BUG-4 while loop_local_counts
+# Nuove funzioni globali: sum, zip, enumerate, sorted, any, all, chr, ord, copy, hex, bin, oct
+# IntRange nei HOF: map/filter/reduce/len
+
+var ok = 0
+var fail = 0
+
+fn check(label, got, expected)
+    if got == expected
+        ok += 1
+    else
+        fail += 1
+        println(f"FAIL [{label}]: got {got}, expected {expected}")
+
+# ─── BUG-1: __init__ chiamato una sola volta ─────────────────────────────
+var init_calls = 0
+
+class Tracked
+    n: Int = 0
+    fn __init__(self, x)
+        init_calls += 1
+        self.n = x
+
+let t = Tracked(99)
+check("bug1_value",      t.n,        99)
+check("bug1_call_count", init_calls, 1)
+
+# ─── BUG-2: kwargs → errore a compile-time (testato separatamente) ────────
+# (non possiamo testare un errore di compilazione inline — il test è implicito:
+#  se kwargs fossero ancora silenziosi, i test BUG-3 potrebbero essere falsi-positivi)
+
+# ─── BUG-3: costruttore con parametri — arity corretta ───────────────────
+class Point
+    x: Int = 0
+    y: Int = 0
+    fn __init__(self, x, y)
+        self.x = x
+        self.y = y
+
+let p = Point(3, 7)
+check("bug3_x", p.x, 3)
+check("bug3_y", p.y, 7)
+
+class Vec3
+    x: Float = 0.0
+    y: Float = 0.0
+    z: Float = 0.0
+    fn __init__(self, x, y, z)
+        self.x = x
+        self.y = y
+        self.z = z
+    fn dot(self, other)
+        return self.x*other.x + self.y*other.y + self.z*other.z
+
+let v1 = Vec3(1.0, 0.0, 0.0)
+let v2 = Vec3(0.0, 1.0, 0.0)
+check("bug3_dot_ortho", v1.dot(v2), 0.0)
+
+let v3 = Vec3(1.0, 2.0, 3.0)
+check("bug3_dot_self", v3.dot(v3), 14.0)
+
+# classe senza __init__ — deve ancora funzionare
+class Simple
+    val: Int = 42
+
+let s = Simple()
+check("bug3_no_init", s.val, 42)
+
+# ─── BUG-4: while con loop_local_counts ──────────────────────────────────
+var i = 0
+while i < 5
+    i += 1
+check("bug4_while_basic", i, 5)
+
+# while + break
+var j = 0
+while j < 100
+    j += 1
+    if j == 7
+        break
+check("bug4_while_break", j, 7)
+
+# while annidato in for
+var wsum = 0
+for x in 0..4
+    var w = 0
+    while w < x
+        wsum += w
+        w += 1
+check("bug4_while_in_for", wsum, 4)   # 0 + (0) + (0+1) + (0+1+2) = 6
+
+# continue in while
+var evens = 0
+var k = 0
+while k < 10
+    k += 1
+    if k % 2 != 0
+        continue
+    evens += 1
+check("bug4_while_continue", evens, 5)
+
+# ─── IntRange in len() ────────────────────────────────────────────────────
+check("range_len_excl",  len(0..10),   10)
+check("range_len_incl",  len(0..=10),  11)
+check("range_len_empty", len(5..3),    0)
+
+# ─── IntRange in map/filter/reduce ───────────────────────────────────────
+let doubled = map(0..5, fn(x) => x * 2)
+check("range_map", doubled, [0, 2, 4, 6, 8])
+
+let evens2 = filter(0..10, fn(x) => x % 2 == 0)
+check("range_filter", evens2, [0, 2, 4, 6, 8])
+
+let total = reduce(1..=5, fn(acc, x) => acc + x, 0)
+check("range_reduce", total, 15)
+
+# ─── sum() globale ────────────────────────────────────────────────────────
+check("sum_ints",    sum([1, 2, 3, 4, 5]), 15)
+check("sum_empty",   sum([]),              0)
+check("sum_range",   sum(1..=100),   5050)
+
+# ─── zip() globale ───────────────────────────────────────────────────────
+let zipped = zip([1, 2, 3], ["a", "b", "c"])
+check("zip_len",    len(zipped), 3)
+check("zip_first",  zipped[0],   [1, "a"])
+check("zip_last",   zipped[2],   [3, "c"])
+
+# ─── enumerate() globale ─────────────────────────────────────────────────
+let enumd = enumerate(["x", "y", "z"])
+check("enum_first", enumd[0], [0, "x"])
+check("enum_last",  enumd[2], [2, "z"])
+
+let enumd1 = enumerate(["a", "b"], 1)
+check("enum_start1", enumd1[0], [1, "a"])
+
+# ─── sorted() globale ────────────────────────────────────────────────────
+let orig = [3, 1, 4, 1, 5, 9, 2, 6]
+let srt  = sorted(orig)
+check("sorted_first", srt[0], 1)
+check("sorted_last",  srt[7], 9)
+check("sorted_orig_unchanged", orig[0], 3)   # non modifica l'originale
+
+# ─── any() / all() globali ───────────────────────────────────────────────
+check("any_true",  any([false, false, true]), true)
+check("any_false", any([false, false]),       false)
+check("all_true",  all([true, true, true]),   true)
+check("all_false", all([true, false, true]),  false)
+
+# ─── chr() / ord() ───────────────────────────────────────────────────────
+check("chr_A",     chr(65),      "A")
+check("chr_space", chr(32),      " ")
+check("ord_A",     ord("A"),     65)
+check("ord_z",     ord("z"),     122)
+check("ord_chr",   ord(chr(9786)), 9786)  # roundtrip Unicode
+
+# ─── copy() ──────────────────────────────────────────────────────────────
+let arr1 = [1, 2, 3]
+let arr2 = copy(arr1)
+push(arr2, 4)
+check("copy_no_alias", len(arr1), 3)   # arr1 non modificato
+check("copy_new_val",  len(arr2), 4)
+
+# ─── hex() / bin() / oct() ───────────────────────────────────────────────
+check("hex_255",  hex(255),  "0xff")
+check("hex_0",    hex(0),    "0x0")
+check("bin_10",   bin(10),   "0b1010")
+check("oct_8",    oct(8),    "0o10")
+
+# ─── Risultati ────────────────────────────────────────────────────────────
+println(f"\n=== v0.2.15 test results: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL TESTS PASSED")

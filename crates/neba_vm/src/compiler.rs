@@ -471,24 +471,24 @@ impl Compiler {
             }
 
             ExprKind::Call { callee, args, kwargs } => {
+                // Named kwargs non ancora supportati — errore esplicito a compile-time
+                if !kwargs.is_empty() {
+                    return Err(VmError::CompileError(
+                        format!("named arguments (kwargs) not yet supported — use positional arguments")
+                    ));
+                }
                 if let ExprKind::Field { object, field } = &callee.inner {
-                    // Chiamata a metodo: compila obj poi gli args, emetti CallMethod
                     self.compile_expr(object)?;
-                    let mut argc = args.len();
                     for a in args { self.compile_expr(a)?; }
-                    for (_, v) in kwargs { self.compile_expr(v)?; argc += 1; }
                     let idx = self.chunk.add_name(field);
                     self.chunk.emit(Op::CallMethod, line);
                     self.chunk.emit_u16(idx);
-                    self.chunk.emit_u8(argc as u8);
+                    self.chunk.emit_u8(args.len() as u8);
                 } else {
-                    // Chiamata a funzione normale
                     self.compile_expr(callee)?;
-                    let mut argc = args.len();
                     for a in args { self.compile_expr(a)?; }
-                    for (_, v) in kwargs { self.compile_expr(v)?; argc += 1; }
                     self.chunk.emit(Op::Call, line);
-                    self.chunk.emit_u8(argc as u8);
+                    self.chunk.emit_u8(args.len() as u8);
                 }
             }
 
@@ -900,6 +900,7 @@ impl Compiler {
     fn compile_while(&mut self, condition: &Expr, body: &[Stmt], line: u32) -> VmResult<()> {
         self.break_patches.push(Vec::new());
         self.continue_patches.push(Vec::new());
+        self.loop_local_counts.push(0); // BUG-4 fix: simmetrico con il pop in fondo
 
         let loop_start = self.chunk.code.len();
         self.compile_expr(condition)?;
@@ -1116,29 +1117,45 @@ impl Compiler {
             traits: implemented_traits,
         });
 
-        // Emetti un costruttore come closure
-        // Il costruttore: crea istanza, inizializza campi, chiama __init__ se esiste
+        // Compila il costruttore come funzione speciale che:
+        //   1. riceve gli stessi parametri di __init__ (senza self)
+        //   2. crea l'istanza, inizializza i campi, chiama __init__
+        //   3. restituisce l'istanza
         let ctor_name = name.to_string();
         let ctor_line = line;
-
-        // Compila il costruttore come una funzione speciale
         let mut ctor = Compiler::new_function(name);
-        // Propaga tutti i registry al costruttore
         ctor.class_registry = self.class_registry.clone();
         ctor.trait_registry  = self.trait_registry.clone();
         ctor.impl_registry   = self.impl_registry.clone();
+
+        // Recupera i parametri di __init__ (escluso self) — determinano l'arity del costruttore
+        let init_params: Vec<Param> = methods.iter()
+            .find(|m| matches!(&m.inner, StmtKind::Fn { name, .. } if name == "__init__"))
+            .and_then(|m| if let StmtKind::Fn { params, .. } = &m.inner {
+                Some(params.iter().filter(|p| p.name != "self").cloned().collect())
+            } else { None })
+            .unwrap_or_default();
+
+        let ctor_arity     = init_params.iter().filter(|p| p.default.is_none()).count();
+        let ctor_max_arity = init_params.len();
+
+        // I parametri del costruttore diventano i locali slot 0..n del suo frame.
+        // Devono essere registrati PRIMA di emettere qualsiasi bytecode che li usa.
+        for p in &init_params {
+            ctor.locals.push(Local { name: p.name.clone(), depth: 1, mutable: true });
+        }
 
         // MakeInstance: crea l'istanza
         let name_idx = ctor.chunk.add_name(name);
         ctor.chunk.emit(Op::MakeInstance, ctor_line);
         ctor.chunk.emit_u16(name_idx);
-        // Stack: [instance]
+        // Stack: [arg0, arg1, ..., argN, instance]
 
         // Inizializza i campi con i valori di default
         for field in fields {
             if let Some(def) = &field.default {
                 if let Some(v) = const_eval(def) {
-                    ctor.chunk.emit(Op::Dup, ctor_line); // dup instance
+                    ctor.chunk.emit(Op::Dup, ctor_line);
                     let cidx = ctor.chunk.add_const(v);
                     ctor.chunk.emit(Op::Const, ctor_line);
                     ctor.chunk.emit_u16(cidx);
@@ -1146,7 +1163,6 @@ impl Compiler {
                     ctor.chunk.emit(Op::SetField, ctor_line);
                     ctor.chunk.emit_u16(fidx);
                 } else {
-                    // Compile expr nel costruttore
                     ctor.chunk.emit(Op::Dup, ctor_line);
                     ctor.compile_expr(def)?;
                     let fidx = ctor.chunk.add_name(&field.name);
@@ -1154,7 +1170,6 @@ impl Compiler {
                     ctor.chunk.emit_u16(fidx);
                 }
             } else {
-                // Campo senza default → None
                 ctor.chunk.emit(Op::Dup, ctor_line);
                 ctor.chunk.emit(Op::Nil, ctor_line);
                 let fidx = ctor.chunk.add_name(&field.name);
@@ -1164,22 +1179,19 @@ impl Compiler {
         }
 
         // Compila i metodi come closures nei campi dell'istanza.
-        // Priorità: i metodi definiti nella classe sovrascrivono quelli dei trait.
-        // Prima i metodi della classe, poi quelli degli impl (che non sono già presenti).
         let class_method_names: std::collections::HashSet<String> = methods.iter()
             .filter_map(|s| if let StmtKind::Fn { name, .. } = &s.inner { Some(name.clone()) } else { None })
             .collect();
 
         for method_stmt in methods.iter() {
             if let StmtKind::Fn { name: mname, params, body, is_async, .. } = &method_stmt.inner {
-                ctor.chunk.emit(Op::Dup, ctor_line); // dup instance per SetField
+                ctor.chunk.emit(Op::Dup, ctor_line);
                 ctor.compile_fn_def(mname, params, body, *is_async, ctor_line)?;
                 let midx = ctor.chunk.add_name(mname);
                 ctor.chunk.emit(Op::SetField, ctor_line);
                 ctor.chunk.emit_u16(midx);
             }
         }
-        // Aggiunge i metodi dei trait (solo quelli non già definiti nella classe)
         for method_stmt in impl_methods.iter() {
             if let StmtKind::Fn { name: mname, params, body, is_async, .. } = &method_stmt.inner {
                 if !class_method_names.contains(mname) {
@@ -1192,35 +1204,17 @@ impl Compiler {
             }
         }
 
-        // Se esiste __init__, chiamalo con i parametri del costruttore
-        let init_params: Vec<Param> = methods.iter()
-        .find(|m| matches!(&m.inner, StmtKind::Fn { name, .. } if name == "__init__"))
-        .and_then(|m| if let StmtKind::Fn { params, .. } = &m.inner {
-            Some(params.iter().filter(|p| p.name != "self").cloned().collect())
-        } else { None })
-        .unwrap_or_default();
-
-        let arity     = init_params.iter().filter(|p| p.default.is_none()).count();
-        let max_arity = init_params.len();
-
+        // Se esiste __init__, chiamalo con i parametri del costruttore.
+        // A questo punto lo stack è: [arg0, arg1, ..., argN, instance]
+        // I locali 0..N contengono i parametri. L'istanza è TOS.
         if !init_params.is_empty() {
-            // Aggiungi i parametri come locali del costruttore
-            for (i, p) in init_params.iter().enumerate() {
-                ctor.locals.push(crate::compiler::Local {
-                    name:    p.name.clone(),
-                                 depth:   1,
-                                 mutable: true,
-                });
-            }
-            // Stack: [instance] — chiama __init__(self, args...)
             // Dup instance come receiver
             ctor.chunk.emit(Op::Dup, ctor_line);
-            // Carica ogni parametro
+            // Carica ciascun parametro dallo slot locale corretto
             for (i, _) in init_params.iter().enumerate() {
                 ctor.chunk.emit(Op::LoadLocal, ctor_line);
                 ctor.chunk.emit_u8(i as u8);
             }
-            // CallMethod __init__
             let init_idx = ctor.chunk.add_name("__init__");
             ctor.chunk.emit(Op::CallMethod, ctor_line);
             ctor.chunk.emit_u16(init_idx);
@@ -1228,52 +1222,17 @@ impl Compiler {
             ctor.chunk.emit(Op::Pop, ctor_line); // scarta il risultato di __init__
         }
 
-        // Se esiste __init__, chiamalo con i parametri del costruttore
-        let init_params: Vec<Param> = methods.iter()
-        .find(|m| matches!(&m.inner, StmtKind::Fn { name, .. } if name == "__init__"))
-        .and_then(|m| if let StmtKind::Fn { params, .. } = &m.inner {
-            Some(params.iter().filter(|p| p.name != "self").cloned().collect())
-        } else { None })
-        .unwrap_or_default();
-
-        let arity     = init_params.iter().filter(|p| p.default.is_none()).count();
-        let max_arity = init_params.len();
-
-        if !init_params.is_empty() {
-            // Aggiungi i parametri come locali del costruttore
-            for p in init_params.iter() {
-                ctor.locals.push(Local {
-                    name:    p.name.clone(),
-                                 depth:   1,
-                                 mutable: true,
-                });
-            }
-            // Dup instance come receiver per CallMethod
-            ctor.chunk.emit(Op::Dup, ctor_line);
-            // Carica ogni parametro
-            for (i, _) in init_params.iter().enumerate() {
-                ctor.chunk.emit(Op::LoadLocal, ctor_line);
-                ctor.chunk.emit_u8(i as u8);
-            }
-            // CallMethod __init__
-            let init_idx = ctor.chunk.add_name("__init__");
-            ctor.chunk.emit(Op::CallMethod, ctor_line);
-            ctor.chunk.emit_u16(init_idx);
-            ctor.chunk.emit_u8(init_params.len() as u8);
-            ctor.chunk.emit(Op::Pop, ctor_line);
-        }
-
         // Ritorna l'istanza
         ctor.chunk.emit(Op::Return, ctor_line);
 
         let proto = FnProto {
             name:      ctor_name,
-            arity,
-            max_arity,
+            arity:     ctor_arity,
+            max_arity: ctor_max_arity,
             chunk:     std::rc::Rc::new(ctor.chunk),
             upvalues:  Vec::new(),
             defaults:  Vec::new(),
-                is_async:  false,
+            is_async:  false,
         };
         let closure = Value::Closure(std::rc::Rc::new(crate::value::Closure {
             proto:    std::rc::Rc::new(proto),
