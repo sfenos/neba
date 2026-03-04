@@ -65,6 +65,8 @@ pub struct Compiler {
     pub trait_registry: std::collections::HashMap<String, TraitInfo>,
     /// Mappa class_name → Vec<Stmt> dei metodi provenienti da `impl Trait for Class`
     pub impl_registry: std::collections::HashMap<String, Vec<Stmt>>,
+    /// Mappa class_name → lista di trait implementati (per `is` a runtime)
+    pub impl_traits_registry: std::collections::HashMap<String, Vec<String>>,
     /// Nome della funzione (per messaggi di errore)
     fn_name: String,
     is_function: bool,
@@ -91,6 +93,7 @@ impl Compiler {
             class_registry: std::collections::HashMap::new(),
             trait_registry: std::collections::HashMap::new(),
             impl_registry: std::collections::HashMap::new(),
+            impl_traits_registry: std::collections::HashMap::new(),
             fn_name: "<script>".to_string(),
             stack_depth: 0,
             loop_stack_depths: Vec::new(),
@@ -111,6 +114,7 @@ impl Compiler {
             class_registry: std::collections::HashMap::new(),
             trait_registry: std::collections::HashMap::new(),
             impl_registry: std::collections::HashMap::new(),
+            impl_traits_registry: std::collections::HashMap::new(),
             fn_name: name.to_string(),
             stack_depth: 0,
             loop_stack_depths: Vec::new(),
@@ -144,6 +148,11 @@ impl Compiler {
                 }
                 StmtKind::Impl { trait_name, for_type, methods } => {
                     if let Some(class_name) = for_type {
+                        // Registra il trait come implementato da questa classe
+                        c.impl_traits_registry
+                            .entry(class_name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(trait_name.clone());
                         // Aggiunge i metodi dell'impl alla mappa per quella classe
                         let entry = c.impl_registry
                             .entry(class_name.clone())
@@ -583,6 +592,26 @@ impl Compiler {
                 self.compile_expr(right)?;
                 self.chunk.patch_jump(patch);
             }
+            BinOp::Is => {
+                // Emette il nome classe/trait come stringa invece di caricare la variabile
+                self.compile_expr(left)?;
+                if let ExprKind::Ident(name) = &right.inner {
+                    if self.class_registry.contains_key(name.as_str()) {
+                        let ci = self.chunk.add_const(Value::str(name.clone()));
+                        self.chunk.emit(Op::Const, line);
+                        self.chunk.emit_u16(ci);
+                    } else if self.trait_registry.contains_key(name.as_str()) {
+                        let ci = self.chunk.add_const(Value::str(format!("trait:{}", name)));
+                        self.chunk.emit(Op::Const, line);
+                        self.chunk.emit_u16(ci);
+                    } else {
+                        self.compile_expr(right)?;
+                    }
+                } else {
+                    self.compile_expr(right)?;
+                }
+                self.chunk.emit(Op::Is, line);
+            }
             _ => {
                 self.compile_expr(left)?;
                 self.compile_expr(right)?;
@@ -605,10 +634,9 @@ impl Compiler {
                     BinOp::BitXor => Op::BitXor,
                     BinOp::Shl    => Op::Shl,
                     BinOp::Shr    => Op::Shr,
-                    BinOp::Is     => Op::Is,
                     BinOp::In     => Op::In,
                     BinOp::NotIn  => Op::NotIn,
-                    BinOp::And | BinOp::Or => unreachable!(),
+                    BinOp::And | BinOp::Or | BinOp::Is => unreachable!(),
                 };
                 self.chunk.emit(instr, line);
             }
@@ -1019,6 +1047,7 @@ impl Compiler {
         fn_compiler.class_registry = self.class_registry.clone();
         fn_compiler.trait_registry  = self.trait_registry.clone();
         fn_compiler.impl_registry   = self.impl_registry.clone();
+        fn_compiler.impl_traits_registry = self.impl_traits_registry.clone();
         // Passa i locali del frame corrente come parent_locals per cattura upvalue
         fn_compiler.parent_locals = self.locals.iter().enumerate()
             .map(|(i, l)| (l.name.clone(), i as u8))
@@ -1100,21 +1129,17 @@ impl Compiler {
             .collect();
 
         // Determina quali trait sono implementati (per ClassInfo.traits)
-        let implemented_traits: Vec<String> = self.impl_registry
-            .iter()
-            .filter(|(_, stmts)| !stmts.is_empty())
-            .flat_map(|(_, _)| {
-                // Recupera i trait_name dall'impl_registry originale cercando negli stmt globali
-                // In questa versione usiamo un approccio semplice: il nome è memorizzato a runtime
-                std::iter::empty::<String>()
-            })
-            .collect();
+        // Traits implementati da questa classe — dal pre-pass impl_traits_registry
+        let implemented_traits: Vec<String> = self.impl_traits_registry
+            .get(name)
+            .cloned()
+            .unwrap_or_default();
 
         // Registra la classe nel registry locale (con traits implementati)
         self.class_registry.insert(name.to_string(), ClassInfo {
             fields: fields.to_vec(),
             methods: methods.to_vec(),
-            traits: implemented_traits,
+            traits: implemented_traits.clone(),
         });
 
         // Compila il costruttore come funzione speciale che:
@@ -1127,6 +1152,7 @@ impl Compiler {
         ctor.class_registry = self.class_registry.clone();
         ctor.trait_registry  = self.trait_registry.clone();
         ctor.impl_registry   = self.impl_registry.clone();
+        ctor.impl_traits_registry = self.impl_traits_registry.clone();
 
         // Recupera i parametri di __init__ (escluso self) — determinano l'arity del costruttore
         let init_params: Vec<Param> = methods.iter()
@@ -1149,6 +1175,16 @@ impl Compiler {
         let name_idx = ctor.chunk.add_name(name);
         ctor.chunk.emit(Op::MakeInstance, ctor_line);
         ctor.chunk.emit_u16(name_idx);
+
+        // SetTraits: inietta la lista di trait nell'istanza (per `is` a runtime)
+        if !implemented_traits.is_empty() {
+            ctor.chunk.emit(Op::SetTraits, ctor_line);
+            ctor.chunk.emit_u8(implemented_traits.len() as u8);
+            for t in &implemented_traits {
+                let ti = ctor.chunk.add_name(t);
+                ctor.chunk.emit_u16(ti);
+            }
+        }
         // Stack: [arg0, arg1, ..., argN, instance]
 
         // Inizializza i campi con i valori di default

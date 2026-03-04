@@ -112,6 +112,8 @@ pub enum Op {
     SetField,
     /// `MakeInstance [u16:class_name_idx]` — crea istanza con campi default
     MakeInstance,
+    /// `SetTraits [u8:count] [u16:name_idx]...` — setta i trait dell'istanza in TOS
+    SetTraits,
 
     // ── Option / Result ───────────────────────────────────────────────────
     /// `MakeSome` — pop v, push Some(v)
@@ -190,6 +192,7 @@ impl Op {
             Op::GetField    => 2,
             Op::SetField    => 2,
             Op::MakeInstance => 2,
+            Op::SetTraits    => 0,  // variabile: [u8 count] + count*[u16 name_idx]
             Op::IsSome      => 2,
             Op::IsNone      => 2,
             Op::IsOk        => 2,

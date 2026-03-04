@@ -1,0 +1,96 @@
+# Test suite v0.2.16 — operatore is (class + trait)
+var ok = 0
+var fail = 0
+
+fn check(label, got, expected)
+    if got == expected
+        ok += 1
+    else
+        fail += 1
+        println(f"FAIL [{label}]: got {got}, expected {expected}")
+
+trait Printable
+    fn to_str(self)
+        return "?"
+
+trait Comparable
+    fn compare(self, other)
+        return 0
+
+class Animal
+    name: Str = ""
+    fn __init__(self, name)
+        self.name = name
+
+impl Printable for Animal
+    fn to_str(self)
+        return f"Animal({self.name})"
+
+class Dog
+    name: Str = ""
+    fn __init__(self, name)
+        self.name = name
+
+impl Printable for Dog
+    fn to_str(self)
+        return f"Dog({self.name})"
+
+impl Comparable for Dog
+    fn compare(self, other)
+        if self.name < other.name
+            return -1
+        elif self.name > other.name
+            return 1
+        else
+            return 0
+
+class Cat
+    name: Str = ""
+    fn __init__(self, name)
+        self.name = name
+
+let a  = Animal("Leo")
+let d1 = Dog("Rex")
+let d2 = Dog("Max")
+let c  = Cat("Whiskers")
+
+# is ClassName
+check("animal is Animal",  a  is Animal, true)
+check("dog is Dog",        d1 is Dog,    true)
+check("cat is Cat",        c  is Cat,    true)
+check("dog is Animal",     d1 is Animal, false)
+check("cat is Dog",        c  is Dog,    false)
+
+# is Trait
+check("animal is Printable",  a  is Printable,  true)
+check("dog is Printable",     d1 is Printable,  true)
+check("dog is Comparable",    d1 is Comparable, true)
+check("cat is Printable",     c  is Printable,  false)
+check("cat is Comparable",    c  is Comparable, false)
+
+# is in condizioni
+fn describe(obj)
+    if obj is Printable
+        return obj.to_str()
+    else
+        return "non-printable"
+
+check("describe animal", describe(a),  "Animal(Leo)")
+check("describe dog",    describe(d1), "Dog(Rex)")
+check("describe cat",    describe(c),  "non-printable")
+
+# is con due istanze
+check("d1 is same type as d2", d1 is d2, true)
+check("d1 is same type as c",  d1 is c,  false)
+
+# loop con is
+let zoo = [a, d1, c, d2]
+var printable_count = 0
+for obj in zoo
+    if obj is Printable
+        printable_count += 1
+check("printable_count", printable_count, 3)
+
+println(f"\n=== v0.2.16 test results: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL TESTS PASSED")

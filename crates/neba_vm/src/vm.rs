@@ -529,6 +529,12 @@ impl Vm {
                     let idx = read_u16!() as usize; let cn = chunk!().names[idx].clone();
                     push!(Value::Instance(Rc::new(RefCell::new(Instance::new(&cn)))));
                 }
+                Op::SetTraits => {
+                    let n = read_u8!() as usize;
+                    let mut traits = Vec::with_capacity(n);
+                    for _ in 0..n { let idx = read_u16!() as usize; traits.push(chunk!().names[idx].clone()); }
+                    if let Value::Instance(inst) = peek!() { inst.borrow_mut().traits = traits; }
+                }
                 Op::MakeSome => { let v = pop!(); push!(Value::Some_(Box::new(v))); }
                 Op::MakeOk   => { let v = pop!(); push!(Value::Ok_(Box::new(v)));   }
                 Op::MakeErr  => { let v = pop!(); push!(Value::Err_(Box::new(v)));  }
@@ -554,7 +560,23 @@ impl Vm {
                 }
                 Op::In    => { let h = pop!(); let n = pop!(); push!(Value::Bool(self.eval_in(n, h)?)); }
                 Op::NotIn => { let h = pop!(); let n = pop!(); push!(Value::Bool(!self.eval_in(n, h)?)); }
-                Op::Is    => { let r = pop!(); let l = pop!(); push!(Value::Bool(std::mem::discriminant(&l) == std::mem::discriminant(&r))); }
+                Op::Is    => {
+                    let r = pop!(); let l = pop!();
+                    let result = match (&l, &r) {
+                        (Value::Instance(inst), Value::Str(s)) if !s.starts_with("trait:") => {
+                            inst.borrow().class_name == s.as_str()
+                        }
+                        (Value::Instance(inst), Value::Str(s)) if s.starts_with("trait:") => {
+                            let tn = &s["trait:".len()..];
+                            inst.borrow().traits.iter().any(|t| t == tn)
+                        }
+                        (Value::Instance(a), Value::Instance(b)) => {
+                            a.borrow().class_name == b.borrow().class_name
+                        }
+                        _ => std::mem::discriminant(&l) == std::mem::discriminant(&r),
+                    };
+                    push!(Value::Bool(result));
+                }
 
                 Op::IsSome    => { let o = read_i16!(); if !matches!(peek!(), Value::Some_(_)) { ip = (ip as isize + o as isize) as usize; } }
                 Op::IsNone    => { let o = read_i16!(); if !matches!(peek!(), Value::None)     { ip = (ip as isize + o as isize) as usize; } }
@@ -944,6 +966,7 @@ impl Vm {
                         Op::GetField => { let i = ru16!() as usize; let n = cc!().names[i].clone(); let o = cp!(); ps!(self.get_field(o, &n)?); }
                         Op::SetField => { let i = ru16!() as usize; let n = cc!().names[i].clone(); let v = cp!(); let o = cp!(); match o { Value::Instance(inst) => { inst.borrow_mut().fields.insert(n,v); } _ => return Err(VmError::TypeError(format!("cannot set field on {}", o.type_name()))) } }
                         Op::MakeInstance => { let i = ru16!() as usize; let cn = cc!().names[i].clone(); ps!(Value::Instance(Rc::new(RefCell::new(Instance::new(&cn))))); }
+                        Op::SetTraits => { let n = ru8!() as usize; let mut tr = Vec::with_capacity(n); for _ in 0..n { let i = ru16!() as usize; tr.push(cc!().names[i].clone()); } if let Some(Value::Instance(inst)) = self.stack.last() { inst.borrow_mut().traits = tr; } }
                         Op::MakeArray => { let c = ru16!() as usize; let s = self.stack.len()-c; let items: Vec<Value> = self.stack.drain(s..).collect(); ps!(Value::array(items)); }
                         Op::MakeDict  => { let c = ru16!() as usize; let s = self.stack.len()-c*2; let flat: Vec<Value> = self.stack.drain(s..).collect(); let pairs: Vec<(Value,Value)> = flat.chunks(2).map(|c| (c[0].clone(),c[1].clone())).collect(); ps!(Value::dict(pairs)); }
                         Op::GetIndex  => { let i = cp!(); let o = cp!(); ps!(self.eval_index(o,i)?); }
@@ -952,7 +975,7 @@ impl Vm {
                         Op::MakeErr   => { let v = cp!(); ps!(Value::Err_(Box::new(v)));  }
                         Op::In    => { let h = cp!(); let n = cp!(); ps!(Value::Bool(self.eval_in(n,h)?)); }
                         Op::NotIn => { let h = cp!(); let n = cp!(); ps!(Value::Bool(!self.eval_in(n,h)?)); }
-                        Op::Is    => { let r = cp!(); let l = cp!(); ps!(Value::Bool(std::mem::discriminant(&l)==std::mem::discriminant(&r))); }
+                        Op::Is    => { let r = cp!(); let l = cp!(); let res = match (&l,&r) { (Value::Instance(i),Value::Str(s)) if !s.starts_with("trait:") => i.borrow().class_name==s.as_str(), (Value::Instance(i),Value::Str(s)) if s.starts_with("trait:") => { let tn=&s["trait:".len()..]; i.borrow().traits.iter().any(|t|t==tn) } (Value::Instance(a),Value::Instance(b)) => a.borrow().class_name==b.borrow().class_name, _ => std::mem::discriminant(&l)==std::mem::discriminant(&r) }; ps!(Value::Bool(res)); }
                         Op::IsSome => { let o = ri16!(); if !matches!(ck!(), Value::Some_(_)) { ip = (ip as isize+o as isize) as usize; } }
                         Op::IsNone => { let o = ri16!(); if !matches!(ck!(), Value::None)     { ip = (ip as isize+o as isize) as usize; } }
                         Op::IsOk   => { let o = ri16!(); if !matches!(ck!(), Value::Ok_(_))   { ip = (ip as isize+o as isize) as usize; } }

@@ -172,12 +172,13 @@ pub type NativeFn = fn(&[Value]) -> Result<Value, String>;
 #[derive(Debug, Clone)]
 pub struct Instance {
     pub class_name: String,
+    pub traits: Vec<String>,
     pub fields: HashMap<String, Value>,
 }
 
 impl Instance {
     pub fn new(class_name: impl Into<String>) -> Self {
-        Instance { class_name: class_name.into(), fields: HashMap::new() }
+        Instance { class_name: class_name.into(), traits: Vec::new(), fields: HashMap::new() }
     }
 }
 
