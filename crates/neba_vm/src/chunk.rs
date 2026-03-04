@@ -122,25 +122,49 @@ impl Chunk {
     ///
     /// Nota: le eliminazioni di istruzioni (Const+Pop ecc.) richiedono un remap completo
     /// degli offset di salto — implementate nel constant folding a livello AST invece.
+    /// Peephole optimizer: sostituisce pattern ridondanti con Nop.
+    /// Sicuro: non sposta byte, gli offset di salto restano validi.
     pub fn peephole_optimize(&mut self) {
         let code = &mut self.code;
         let len = code.len();
         let mut i = 0usize;
-        while i + 1 < len {
-            let op0 = Op::from_u8(code[i]);
-            let op1 = Op::from_u8(code[i + 1]);
-            match (op0, op1) {
-                // Not + Not: entrambi diventano Nop (0-operand no-op)
-                // Usiamo Dup+Pop come sequenza neutra 1+1 byte — oppure semplicemente
-                // non facciamo niente: manteniamo le istruzioni (sicuro, conservative).
-                // Il vero guadagno viene dal constant folding, non da qui.
-                _ => {}
+        while i < len {
+            let Some(op0) = Op::from_u8(code[i]) else { i += 1; continue; };
+            let op0_size = 1 + op0.operand_bytes();
+            let next = i + op0_size;
+            if next < len {
+                let Some(op1) = Op::from_u8(code[next]) else { i += op0_size; continue; };
+                let op1_size = 1 + op1.operand_bytes();
+                match (op0, op1) {
+                    // Const [u16] Pop -> Nop x3 + Nop
+                    (Op::Const, Op::Pop) => {
+                        code[i] = Op::Nop as u8; code[i+1] = Op::Nop as u8; code[i+2] = Op::Nop as u8;
+                        code[next] = Op::Nop as u8;
+                        i += op0_size + op1_size; continue;
+                    }
+                    // True/False/Nil + Pop -> Nop Nop
+                    (Op::True | Op::False | Op::Nil, Op::Pop) => {
+                        code[i] = Op::Nop as u8; code[next] = Op::Nop as u8;
+                        i += op0_size + op1_size; continue;
+                    }
+                    // Not Not -> Nop Nop
+                    (Op::Not, Op::Not) => {
+                        code[i] = Op::Nop as u8; code[next] = Op::Nop as u8;
+                        i += op0_size + op1_size; continue;
+                    }
+                    // Jump offset=0 -> Nop x3 (jump a se stesso)
+                    (Op::Jump, _) if i + 2 < len => {
+                        let offset = i16::from_le_bytes([code[i+1], code[i+2]]);
+                        if offset == 0 {
+                            code[i] = Op::Nop as u8; code[i+1] = Op::Nop as u8; code[i+2] = Op::Nop as u8;
+                        }
+                    }
+                    _ => {}
+                }
             }
-            let step = op0.map(|o| 1 + o.operand_bytes()).unwrap_or(1);
-            i += step;
+            i += op0_size;
         }
     }
-
     /// Aggiunge una costante al pool, restituisce l'indice.
     /// Deduplicazione semplice per Int/Bool/None/Str.
     pub fn add_const(&mut self, v: Value) -> u16 {

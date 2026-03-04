@@ -217,6 +217,16 @@ impl Vm {
                 Op::LoadLocal  => { let idx = read_u8!() as usize; let v = self.stack[base + idx].clone(); push!(v); }
                 Op::StoreLocal => { let idx = read_u8!() as usize; let v = pop!(); self.stack[base + idx] = v; }
 
+                // Specializzati: LoadLocal/StoreLocal senza operando — riduce read_u8! + branch
+                Op::LoadLocal0 => { let v = self.stack[base].clone();     push!(v); }
+                Op::LoadLocal1 => { let v = self.stack[base + 1].clone(); push!(v); }
+                Op::LoadLocal2 => { let v = self.stack[base + 2].clone(); push!(v); }
+                Op::LoadLocal3 => { let v = self.stack[base + 3].clone(); push!(v); }
+                Op::StoreLocal0 => { let v = pop!(); self.stack[base]     = v; }
+                Op::StoreLocal1 => { let v = pop!(); self.stack[base + 1] = v; }
+                Op::StoreLocal2 => { let v = pop!(); self.stack[base + 2] = v; }
+                Op::StoreLocal3 => { let v = pop!(); self.stack[base + 3] = v; }
+
                 Op::LoadUpval  => { let idx = read_u8!() as usize; let v = self.frames.last().unwrap().upvalues[idx].value.borrow().clone(); push!(v); }
                 Op::StoreUpval => { let idx = read_u8!() as usize; let v = pop!(); *self.frames.last_mut().unwrap().upvalues[idx].value.borrow_mut() = v; }
 
@@ -1259,6 +1269,14 @@ impl Vm {
                         Op::PopN   => { let n = ru8!() as usize; let l = self.stack.len(); self.stack.truncate(l - n); }
                         Op::LoadLocal  => { let i = ru8!() as usize; let v = self.stack[base+i].clone(); ps!(v); }
                         Op::StoreLocal => { let i = ru8!() as usize; let v = cp!(); self.stack[base+i] = v; }
+                        Op::LoadLocal0 => { ps!(self.stack[base].clone()); }
+                        Op::LoadLocal1 => { ps!(self.stack[base+1].clone()); }
+                        Op::LoadLocal2 => { ps!(self.stack[base+2].clone()); }
+                        Op::LoadLocal3 => { ps!(self.stack[base+3].clone()); }
+                        Op::StoreLocal0 => { let v = cp!(); self.stack[base]   = v; }
+                        Op::StoreLocal1 => { let v = cp!(); self.stack[base+1] = v; }
+                        Op::StoreLocal2 => { let v = cp!(); self.stack[base+2] = v; }
+                        Op::StoreLocal3 => { let v = cp!(); self.stack[base+3] = v; }
                         Op::LoadUpval  => { let i = ru8!() as usize; let v = self.frames.last().unwrap().upvalues[i].value.borrow().clone(); ps!(v); }
                         Op::StoreUpval => { let i = ru8!() as usize; let v = cp!(); *self.frames.last_mut().unwrap().upvalues[i].value.borrow_mut() = v; }
                         Op::LoadGlobal  => { let i = ru16!() as usize; let n = &cc!().names[i]; let v = self.globals.get(n).map(|(v,_)| v.clone()).ok_or_else(|| VmError::UndefinedVariable(n.clone()))?; ps!(v); }

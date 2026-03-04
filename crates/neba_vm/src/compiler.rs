@@ -410,8 +410,13 @@ impl Compiler {
 
     fn emit_load(&mut self, name: &str, line: u32) -> VmResult<()> {
         if let Some((idx, _)) = self.resolve_local(name) {
-            self.chunk.emit(Op::LoadLocal, line);
-            self.chunk.emit_u8(idx);
+            match idx {
+                0 => { self.chunk.emit(Op::LoadLocal0, line); }
+                1 => { self.chunk.emit(Op::LoadLocal1, line); }
+                2 => { self.chunk.emit(Op::LoadLocal2, line); }
+                3 => { self.chunk.emit(Op::LoadLocal3, line); }
+                _ => { self.chunk.emit(Op::LoadLocal, line); self.chunk.emit_u8(idx); }
+            }
         } else if let Some(idx) = self.resolve_upvalue(name) {
             self.chunk.emit(Op::LoadUpval, line);
             self.chunk.emit_u8(idx);
@@ -430,8 +435,13 @@ impl Compiler {
                     format!("cannot assign to immutable variable '{}'", name)
                 ));
             }
-            self.chunk.emit(Op::StoreLocal, line);
-            self.chunk.emit_u8(idx);
+            match idx {
+                0 => { self.chunk.emit(Op::StoreLocal0, line); }
+                1 => { self.chunk.emit(Op::StoreLocal1, line); }
+                2 => { self.chunk.emit(Op::StoreLocal2, line); }
+                3 => { self.chunk.emit(Op::StoreLocal3, line); }
+                _ => { self.chunk.emit(Op::StoreLocal, line); self.chunk.emit_u8(idx); }
+            }
         } else if let Some(idx) = self.resolve_upvalue(name) {
             self.chunk.emit(Op::StoreUpval, line);
             self.chunk.emit_u8(idx);

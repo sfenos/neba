@@ -162,6 +162,18 @@ pub enum Op {
     /// Converte top in Str (come str())
     ToStr,
 
+    // ── Specializzati: LoadLocal/StoreLocal 0-3 senza operandi ──────────
+    /// LoadLocal senza operando per i local più frequenti (idx 0-3)
+    LoadLocal0,
+    LoadLocal1,
+    LoadLocal2,
+    LoadLocal3,
+    /// StoreLocal senza operando (pop → local 0-3)
+    StoreLocal0,
+    StoreLocal1,
+    StoreLocal2,
+    StoreLocal3,
+
     // ── Misc ──────────────────────────────────────────────────────────────
     Nop,
     Halt,
@@ -204,6 +216,9 @@ impl Op {
             Op::MatchRange  => 7,   // [u16 lo] [u16 hi] [u8 incl] [i16 offset]
             Op::IterNext    => 4,   // [u8 iter_local] [u8 var_local] [i16 jump]
             Op::BuildStr    => 2,
+            // Specializzati LoadLocal/StoreLocal 0-3: 0 operandi
+            Op::LoadLocal0 | Op::LoadLocal1 | Op::LoadLocal2 | Op::LoadLocal3 => 0,
+            Op::StoreLocal0 | Op::StoreLocal1 | Op::StoreLocal2 | Op::StoreLocal3 => 0,
             _               => 0,
         }
     }

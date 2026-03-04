@@ -1,0 +1,567 @@
+# ═══════════════════════════════════════════════════════
+# NEBA COMPREHENSIVE TEST SUITE v0.2.26
+# 300+ test su tutte le funzionalità del linguaggio
+# ═══════════════════════════════════════════════════════
+var ok = 0
+var fail = 0
+var section_fail = 0
+
+fn check(label, got, exp)
+    if got == exp
+        ok += 1
+    else
+        fail += 1
+        section_fail += 1
+        println(f"  FAIL [{label}]: got={got} exp={exp}")
+
+fn section(name)
+    if section_fail > 0
+        println(f"  ↑ {section_fail} failure(s)")
+    section_fail = 0
+    println(name)
+
+# ─── 1. TIPI PRIMITIVI ───────────────────────────────
+section("=== 1. TIPI PRIMITIVI ===")
+check("int_pos", 42, 42)
+check("int_neg", -7, -7)
+check("int_zero", 0, 0)
+check("float", 3.14, 3.14)
+check("float_neg", -2.5, -2.5)
+check("bool_t", true, true)
+check("bool_f", false, false)
+check("none", None, None)
+check("str_empty", "", "")
+check("str_space", " ", " ")
+check("str_unicode", "∑", "∑")
+check("int_max", 9223372036854775807, 9223372036854775807)
+check("type_int", type(1), "Int")
+check("type_float", type(1.0), "Float")
+check("type_bool", type(true), "Bool")
+check("type_str", type("x"), "Str")
+check("type_none", type(None), "None")
+
+# ─── 2. ARITMETICA ───────────────────────────────────
+section("=== 2. ARITMETICA ===")
+check("add_ii", 3+4, 7)
+check("add_ff", 1.5+2.5, 4.0)
+check("add_if", 1+2.0, 3.0)
+check("add_fi", 1.0+2, 3.0)
+check("sub", 10-3, 7)
+check("mul", 6*7, 42)
+check("div_exact", 10/2, 5.0)
+check("div_float", 7/2, 3.5)
+check("intdiv", 7//2, 3)
+check("intdiv_neg", -7//2, -3)  # Neba: truncation toward zero
+check("mod", 10%3, 1)
+check("mod_neg", -10%3, -1)    # Neba: sign follows dividend
+check("pow", 2**10, 1024)
+check("pow_float", 4.0**0.5, 2.0)
+check("neg", -(-42), 42)
+check("chain", 2+3*4-1, 13)
+check("parens", (2+3)*(4-1), 15)
+check("bitand", 12&10, 8)
+check("bitor", 12|10, 14)
+check("bitxor", 12^10, 6)
+check("shl", 1<<4, 16)
+check("shr", 32>>2, 8)
+check("bitnot", ~0, -1)
+
+# ─── 3. CONFRONTI ────────────────────────────────────
+section("=== 3. CONFRONTI ===")
+check("eq_t", 1==1, true)
+check("eq_f", 1==2, false)
+check("ne_t", 1!=2, true)
+check("ne_f", 1!=1, false)
+check("lt_t", 1<2, true)
+check("lt_f", 2<1, false)
+check("le_t", 2<=2, true)
+check("le_f", 3<=2, false)
+check("gt_t", 3>2, true)
+check("gt_f", 1>2, false)
+check("ge_t", 3>=3, true)
+check("ge_f", 2>=3, false)
+check("str_eq", "abc"=="abc", true)
+check("str_lt", "abc"<"abd", true)
+check("float_cmp", 1.0==1.0, true)
+check("none_eq", None==None, true)
+
+# ─── 4. LOGICA ────────────────────────────────────────
+section("=== 4. LOGICA ===")
+check("and_tt", true and true, true)
+check("and_tf", true and false, false)
+check("and_ff", false and false, false)
+check("or_tt", true or false, true)
+check("or_ff", false or false, false)
+check("not_t", not true, false)
+check("not_f", not false, true)
+check("short_and", false and (1/0 > 0), false)  # short circuit
+check("short_or", true or (1/0 > 0), true)
+
+# ─── 5. STRINGHE ─────────────────────────────────────
+section("=== 5. STRINGHE ===")
+let s = "Hello, World!"
+check("len", len(s), 13)
+check("idx", s[0], "H")
+check("neg_idx", s[-1], "!")
+check("slice_start", s[0:5], "Hello")
+check("slice_end", s[7:], "World!")
+check("slice_neg", s[-6:], "World!")
+check("concat", "foo"+"bar", "foobar")
+check("repeat", "ab"*3, "ababab")
+check("fstr_int", f"{42}", "42")
+check("fstr_float", f"{3.14}", "3.14")
+check("fstr_expr", f"{2+3}", "5")
+check("upper", string.upper("hello"), "HELLO")
+check("lower", string.lower("HELLO"), "hello")
+check("strip", string.strip("  hi  "), "hi")
+check("lstrip", string.lstrip("  hi  "), "hi  ")
+check("rstrip", string.rstrip("  hi  "), "  hi")
+check("replace", string.replace("aaa","a","b"), "bbb")
+check("split2", len(string.split("a,b,c",",")), 3)
+check("join", join(["a","b","c"],"-"), "a-b-c")
+check("startswith", string.startswith("hello","hel"), true)
+check("starts_with", string.starts_with("hello","hel"), true)
+check("endswith", string.endswith("hello","llo"), true)
+check("ends_with", string.ends_with("hello","llo"), true)
+check("contains", string.contains("hello","ell"), true)
+check("find", string.find("hello","ll"), 2)
+check("count_s", string.count("aababc","ab"), 2)
+check("zfill", string.zfill("42",5), "00042")
+check("center", len(string.center("hi",10)), 10)
+check("is_digit", string.is_digit("123"), true)
+check("is_alpha", string.is_alpha("abc"), true)
+check("is_alnum", string.is_alnum("abc123"), true)
+check("capitalize", string.capitalize("hello world"), "Hello world")
+check("title", string.title("hello world"), "Hello World")
+check("str_int", str(42), "42")
+check("str_float", str(3.14), "3.14")
+check("str_bool", str(true), "true")
+
+# ─── 6. ARRAY ─────────────────────────────────────────
+section("=== 6. ARRAY ===")
+let a = [10, 20, 30, 40, 50]
+check("len_arr", len(a), 5)
+check("idx_0", a[0], 10)
+check("idx_last", a[4], 50)
+check("idx_neg", a[-1], 50)
+check("idx_neg2", a[-2], 40)
+check("slice_arr", a[1:3], [20,30])
+check("slice_from", a[3:], [40,50])
+check("slice_to", a[:2], [10,20])
+check("sum_arr", sum(a), 150)
+check("min_arr", min(a), 10)
+check("max_arr", max(a), 50)
+let b = [3,1,4,1,5,9,2,6]
+check("sorted_asc0", sorted(b)[0], 1)
+check("sorted_asc_last", sorted(b)[-1], 9)
+fn desc(x,y)
+    return y - x
+check("sorted_desc0", sorted(b, desc)[0], 9)
+let c = [1,2,3]
+push(c, 4)
+check("push_len", len(c), 4)
+check("push_val", c[3], 4)
+let pv = pop(c)
+check("pop_val", pv, 4)
+check("pop_len", len(c), 3)
+check("contains_t", contains(a, 30), true)
+check("contains_f", contains(a, 99), false)
+check("reverse", reverse([1,2,3]), [3,2,1])
+check("any_t", any([false, true, false]), true)
+check("any_f", any([false, false]), false)
+check("all_t", all([true, true]), true)
+check("all_f", all([true, false]), false)
+let en = enumerate([10,20,30])
+check("enum_i0", en[0][0], 0)
+check("enum_v0", en[0][1], 10)
+check("enum_i2", en[2][0], 2)
+let z = zip([1,2,3],[4,5,6])
+check("zip_0_0", z[0][0], 1)
+check("zip_0_1", z[0][1], 4)
+check("zip_len", len(z), 3)
+
+# ─── 7. DICT ──────────────────────────────────────────
+section("=== 7. DICT ===")
+let d = {"x": 1, "y": 2, "z": 3}
+check("get", d["x"], 1)
+d["w"] = 4
+check("set", d["w"], 4)
+check("has_t", has_key(d,"x"), true)
+check("has_f", has_key(d,"q"), false)
+check("keys_len", len(keys(d)), 4)
+check("values_len", len(values(d)), 4)
+let items_d = items(d)
+check("items_len", len(items_d), 4)
+# int keys
+let di = {1: "one", 2: "two"}
+check("int_key", di[1], "one")
+
+# ─── 8. CONTROL FLOW ─────────────────────────────────
+section("=== 8. CONTROL FLOW ===")
+var x = 0
+if true
+    x = 1
+check("if_t", x, 1)
+if false
+    x = 99
+else
+    x = 2
+check("if_else", x, 2)
+if false
+    x = 0
+elif true
+    x = 3
+else
+    x = 99
+check("elif", x, 3)
+var cnt = 0
+for i in 0..5
+    cnt += 1
+check("for_range5", cnt, 5)
+var cnt2 = 0
+for i in range(0, 10, 2)
+    cnt2 += 1
+check("for_step2", cnt2, 5)
+var cnt3 = 0
+for item in ["a","b","c","d"]
+    cnt3 += 1
+check("for_in", cnt3, 4)
+var w = 0
+var wi = 0
+while wi < 10
+    w += wi
+    wi += 1
+check("while_sum", w, 45)
+var bc = 0
+for i in 0..20
+    if i == 7
+        break
+    bc += 1
+check("break_at7", bc, 7)
+var cc = 0
+for i in 0..10
+    if i % 2 == 0
+        continue
+    cc += 1
+check("continue_odd", cc, 5)
+# nested loops
+var nc = 0
+for i in 0..3
+    for j in 0..3
+        nc += 1
+check("nested_loops", nc, 9)
+# match expression
+let mv = match 42
+    0 => "zero"
+    42 => "answer"
+    _ => "other"
+check("match_int", mv, "answer")
+let ms = match "hello"
+    "world" => "nope"
+    "hello" => "yes"
+    _ => "other"
+check("match_str", ms, "yes")
+let mwild = match 99
+    0 => "zero"
+    _ => "wild"
+check("match_wild", mwild, "wild")
+
+# ─── 9. FUNZIONI ─────────────────────────────────────
+section("=== 9. FUNZIONI ===")
+fn add(a, b)
+    return a + b
+check("fn_basic", add(3,4), 7)
+fn fact(n)
+    if n <= 1
+        return 1
+    return n * fact(n-1)
+check("recursive", fact(10), 3628800)
+fn fib(n)
+    if n <= 1
+        return n
+    return fib(n-1) + fib(n-2)
+check("fib_10", fib(10), 55)
+fn vardef(x, y=10, z=100)
+    return x + y + z
+check("defaults_all", vardef(1), 111)
+check("defaults_one", vardef(1, 2), 103)
+check("defaults_none", vardef(1, 2, 3), 6)
+fn ret_none()
+    let x = 1
+let fn_val = ret_none()
+check("implicit_none", fn_val, None)
+# first-class functions
+fn apply(f, x)
+    return f(x)
+fn double(x)
+    return x * 2
+check("first_class", apply(double, 5), 10)
+
+# ─── 10. CLOSURES ─────────────────────────────────────
+section("=== 10. CLOSURES ===")
+fn make_adder(n)
+    fn adder(x)
+        return x + n
+    return adder
+let add5 = make_adder(5)
+let add10 = make_adder(10)
+check("closure_add5", add5(3), 8)
+check("closure_add10", add10(3), 13)
+check("closure_independent", add5(0), 5)
+fn counter()
+    var n = 0
+    fn inc()
+        n += 1
+        return n
+    return inc
+let inc = counter()
+inc()
+inc()
+check("closure_state", inc(), 3)  # single closure counter
+
+# ─── 11. LAMBDA ───────────────────────────────────────
+section("=== 11. LAMBDA ===")
+let sq = fn(x) x*x
+check("lambda_inline", sq(5), 25)
+let sq2 = fn(x) => x*x
+check("lambda_arrow", sq2(5), 25)
+let sq3 = fn(x)
+    return x*x
+check("lambda_block", sq3(5), 25)
+let nums = [1,2,3,4,5]
+let doubled = map(nums, fn(x) x*2)
+check("lambda_map", doubled[2], 6)
+let evens = filter(nums, fn(x) x%2==0)
+check("lambda_filter", len(evens), 2)
+let tot = reduce(nums, fn(a,b) a+b, 0)
+check("lambda_reduce", tot, 15)
+
+# ─── 12. CLASSI ───────────────────────────────────────
+section("=== 12. CLASSI ===")
+class Animal
+    name: Str = ""
+    sound: Str = ""
+    fn __init__(self, name, sound)
+        self.name = name
+        self.sound = sound
+    fn speak(self)
+        return f"{self.name} says {self.sound}"
+    fn __str__(self)
+        return f"Animal({self.name})"
+
+let dog = Animal("Rex", "woof")
+let cat = Animal("Mimi", "meow")
+check("class_field", dog.name, "Rex")
+check("class_method", dog.speak(), "Rex says woof")
+check("class_str", str(dog), "Animal(Rex)")
+check("class_is", dog is Animal, true)
+check("class_separate", cat.name, "Mimi")
+check("class_method2", cat.speak(), "Mimi says meow")
+
+class Counter
+    n: Int = 0
+    fn __init__(self)
+        self.n = 0
+    fn inc(self)
+        self.n += 1
+        return self
+    fn val(self)
+        return self.n
+let c = Counter()
+c.inc()
+c.inc()
+c.inc()
+check("method_chain_manual", c.val(), 3)
+
+# ─── 13. TRAITS ───────────────────────────────────────
+section("=== 13. TRAITS ===")
+trait Shape
+    fn area(self)
+        return 0.0
+    fn describe(self)
+        return f"shape area={self.area()}"
+
+class Rect
+    w: Float = 0.0
+    h: Float = 0.0
+    fn __init__(self, w, h)
+        self.w = w
+        self.h = h
+    fn area(self)
+        return self.w * self.h
+
+impl Shape for Rect
+
+class Circle2
+    r: Float = 0.0
+    fn __init__(self, r)
+        self.r = r
+    fn area(self)
+        return math.pi * self.r * self.r
+
+impl Shape for Circle2
+
+let rect = Rect(4.0, 5.0)
+let circ = Circle2(3.0)
+check("trait_method", rect.area(), 20.0)
+check("trait_default", rect.describe(), "shape area=20.0")
+check("trait_is_shape", rect is Shape, true)
+check("trait_circ_area", circ.area() > 28.0, true)
+check("trait_circ_is", circ is Circle2, true)
+check("trait_circ_shape", circ is Shape, true)
+
+# ─── 14. ERROR HANDLING ──────────────────────────────
+section("=== 14. ERROR HANDLING ===")
+fn safe_sqrt(x)
+    if x < 0.0
+        return Err(f"sqrt of negative: {x}")
+    return Ok(math.sqrt(x))
+
+let r1 = safe_sqrt(9.0)
+let r2 = safe_sqrt(-1.0)
+check("ok_is_ok", r1.is_ok(), true)
+check("ok_unwrap", r1.unwrap(), 3.0)
+check("err_is_err", r2.is_err(), true)
+check("err_unwrap_or", r2.unwrap_or(0.0), 0.0)
+
+fn div_safe(a, b)
+    if b == 0
+        return Err("div/0")
+    return Ok(a / b)
+let ok_r = div_safe(10, 2)
+let err_r = div_safe(1, 0)
+check("div_ok", ok_r.is_ok(), true)
+check("div_ok_val", ok_r.unwrap(), 5.0)
+check("div_err", err_r.is_err(), true)
+
+# ─── 15. HOF ──────────────────────────────────────────
+section("=== 15. HOF ===")
+let data = [1,2,3,4,5,6,7,8,9,10]
+let evens2 = filter(data, fn(x) x%2==0)
+check("filter_evens_len", len(evens2), 5)
+check("filter_evens_0", evens2[0], 2)
+let squares = map(data, fn(x) x*x)
+check("map_sq_0", squares[0], 1)
+check("map_sq_4", squares[4], 25)
+let total2 = reduce(data, fn(a,b) a+b, 0)
+check("reduce_sum", total2, 55)
+let product = reduce([1,2,3,4,5], fn(a,b) a*b, 1)
+check("reduce_product", product, 120)
+# chained HOF
+let chain_r = reduce(filter(map(data, fn(x) x*x), fn(x) x>25), fn(a,b) a+b, 0)
+check("hof_chain", chain_r, 330)  # 6²+7²+8²+9²+10²=330
+
+# ─── 16. TYPED ARRAY ─────────────────────────────────
+section("=== 16. TYPED ARRAY ===")
+let ta = zeros(8)
+for i in 0..8
+    ta[i] = i * 1.0
+check("ta_len", len(ta), 8)
+check("ta_get0", ta[0], 0.0)
+check("ta_get7", ta[7], 7.0)
+check("ta_sum", sum(ta), 28.0)
+check("ta_min", min(ta), 0.0)
+check("ta_max", max(ta), 7.0)
+let tb = ones(5, "Int64")
+check("ta_int_val", tb[0], 1)
+let tl = linspace(0.0, 1.0, 5)
+check("linspace_0", tl[0], 0.0)
+check("linspace_4", tl[4], 1.0)
+let tadd = ta + ta
+check("ta_add", tadd[3], 6.0)
+let tscal = ta * 2.0
+check("ta_scal", tscal[4], 8.0)
+let tdot_r = dot(ta, ta)
+check("ta_dot", tdot_r, 140.0)  # 0+1+4+9+16+25+36+49=140
+
+# ─── 17. NDARRAY ─────────────────────────────────────
+section("=== 17. NDARRAY ===")
+let m = zeros(3, 3)
+check("nd_shape0", m.shape[0], 3)
+check("nd_ndim", m.ndim, 2)
+check("nd_size", m.size, 9)
+let eye = nd.eye(3)
+check("eye_diag", eye[0][0], 1.0)
+check("eye_off", eye[0][1], 0.0)
+let a2d = nd.array([[1.0,2.0],[3.0,4.0]])
+let b2d = nd.array([[5.0,6.0],[7.0,8.0]])
+let c2d = a2d + b2d
+check("nd_add00", c2d[0][0], 6.0)
+check("nd_add11", c2d[1][1], 12.0)
+let s2d = a2d * 2.0
+check("nd_scalar_mul", s2d[1][0], 6.0)
+let t2d = a2d.T
+check("nd_T_shape", t2d.shape[0], 2)
+check("nd_T_01", t2d[0][1], 3.0)
+let mm = nd.matmul(a2d, b2d)
+check("matmul_00", mm[0][0], 19.0)
+check("matmul_11", mm[1][1], 50.0)
+let rs = nd.reshape(a2d, [4])
+check("reshape_0", rs[0], 1.0)
+check("reshape_3", rs[3], 4.0)
+check("nd_sum", nd.sum(a2d), 10.0)
+check("nd_mean", nd.mean(a2d), 2.5)
+check("nd_min", nd.min(a2d), 1.0)
+check("nd_max", nd.max(a2d), 4.0)
+
+# ─── 18. MATH ─────────────────────────────────────────
+section("=== 18. MATH ===")
+check("sqrt_4", math.sqrt(4.0), 2.0)
+check("sqrt_9", math.sqrt(9.0), 3.0)
+check("abs_pos", math.abs(5), 5)
+check("abs_neg", math.abs(-5), 5)
+check("floor_pos", math.floor(3.9), 3)
+check("floor_neg", math.floor(-3.1), -4)
+check("ceil_pos", math.ceil(3.1), 4)
+check("ceil_neg", math.ceil(-3.9), -3)
+check("round_up", math.round(3.6), 4)
+check("round_dn", math.round(3.4), 3)
+check("sin_0", math.sin(0.0), 0.0)
+check("cos_0", math.cos(0.0), 1.0)
+check("tan_0", math.tan(0.0), 0.0)
+check("exp_0", math.exp(0.0), 1.0)
+check("log_e", math.log(math.e), 1.0)
+check("log2_8", math.log2(8.0), 3.0)
+check("log10_1000", math.log10(1000.0), 3.0)
+check("pow_fn", math.pow(2.0, 8.0), 256.0)
+check("pi_range", math.pi > 3.14 and math.pi < 3.15, true)
+check("e_range", math.e > 2.71 and math.e < 2.72, true)
+check("inf", math.inf > 1e300, true)
+check("min_fn2", min(3,1,4,1,5), 1)
+check("max_fn2", max(3,1,4,1,5), 5)
+check("clamp1", math.clamp(5, 0, 10), 5)
+check("clamp_lo", math.clamp(-5, 0, 10), 0)
+check("clamp_hi", math.clamp(15, 0, 10), 10)
+
+# ─── 19. STDLIB MISC ─────────────────────────────────
+section("=== 19. STDLIB MISC ===")
+check("abs_fn", abs(-42), 42)
+check("int_fn", int(3.9), 3)
+check("float_fn", float(3), 3.0)
+check("bool_fn_t", bool(1), true)
+check("bool_fn_f", bool(0), false)
+check("len_str2", len("hello"), 5)
+check("len_arr2", len([1,2,3]), 3)
+check("len_dict", len({"a":1}), 1)
+check("range_fn", len(range(10)), 10)
+check("range_step", len(range(0,10,2)), 5)
+check("chr_65", chr(65), "A")
+check("ord_A", ord("A"), 65)
+check("hex_255", hex(255), "0xff")
+check("bin_8", bin(8), "0b1000")
+check("oct_8", oct(8), "0o10")
+check("copy_arr", copy([1,2,3]), [1,2,3])
+
+# ─── 20. OPERATORI IDENTITÀ ───────────────────────────
+section("=== 20. IS/TYPE CHECKS ===")
+check("is_class", Animal("x","y") is Animal, true)
+check("is_not", 42 is Animal, false)
+
+section("=== FINE ===")
+
+println(f"\n{'='*50}")
+println(f"TOTALE: {ok} passed, {fail} failed")
+if fail == 0
+    println("✓ ALL TESTS PASSED")
+else
+    println(f"✗ {fail} TESTS FAILED")

@@ -16,6 +16,7 @@ pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     reg!("float",    neba_float);
     reg!("bool",     neba_bool);
     reg!("typeof",   neba_type);
+    reg!("type",     neba_type);  // alias
     reg!("abs",      neba_abs);
     reg!("min",      neba_min);
     reg!("max",      neba_max);
@@ -24,6 +25,7 @@ pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     reg!("pop",      neba_pop);
     reg!("assert",   neba_assert);
     reg!("clock",    neba_clock);
+    reg!("time_ms",  neba_time_ms);
     // ── Globali aggiuntivi (v0.2.15) ──────────────────────────────────────
     reg!("sum",       neba_sum);
     reg!("zip",       neba_zip);
@@ -239,6 +241,15 @@ fn neba_clock(_args: &[Value]) -> Result<Value, String> {
         .map_err(|e| e.to_string())?
         .as_secs_f64();
     Ok(Value::Float(secs))
+}
+
+fn neba_time_ms(_args: &[Value]) -> Result<Value, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis() as i64;
+    Ok(Value::Int(ms))
 }
 
 // ── Nuove funzioni globali v0.2.15 ────────────────────────────────────────
@@ -521,8 +532,14 @@ fn neba_sort(args: &[Value]) -> Result<Value, String> {
 /// reverse(array) → None  (inverte in-place)
 fn neba_reverse(args: &[Value]) -> Result<Value, String> {
     match args.first() {
-        Some(Value::Array(arr)) => { arr.borrow_mut().reverse(); Ok(Value::None) }
-        _ => Err("reverse(array) requires an Array".into()),
+        Some(Value::Array(arr)) => {
+            arr.borrow_mut().reverse();
+            Ok(Value::None)
+        }
+        Some(Value::Str(s)) => {
+            Ok(Value::str(s.chars().rev().collect::<String>()))
+        }
+        _ => Err("reverse(array) requires an Array or Str".into()),
     }
 }
 
@@ -1137,6 +1154,7 @@ pub fn make_string_module() -> Value {
         entry("lines",      str_lines),
         entry("trim",       str_strip),   // alias
         entry("contains",   str_contains_fn),
+        entry("join",       str_join),
         entry("is_empty",   str_is_empty),
         entry("index",      str_find),    // alias
         entry("format",     str_format),
@@ -1239,6 +1257,18 @@ fn str_count(args: &[Value]) -> Result<Value, String> {
         _ => Err("string.count(s, sub) requires 2 Str arguments".into()),
     }
 }
+
+fn str_join(args: &[Value]) -> Result<Value, String> {
+    // string.join(sep, array)  OR  string.join(array, sep)
+    match args {
+        [Value::Str(sep), Value::Array(arr)] | [Value::Array(arr), Value::Str(sep)] => {
+            let parts: Vec<String> = arr.borrow().iter().map(|v| v.to_string()).collect();
+            Ok(Value::str(parts.join(sep.as_str())))
+        }
+        _ => Err("string.join(sep, array) requires Str sep and Array".into()),
+    }
+}
+
 fn str_startswith(args: &[Value]) -> Result<Value, String> {
     match args {
         [Value::Str(s), Value::Str(prefix)] => Ok(Value::Bool(s.starts_with(prefix.as_str()))),

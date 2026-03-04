@@ -1,0 +1,115 @@
+fn fib(n)
+    if n <= 1
+        return n
+    return fib(n-1) + fib(n-2)
+
+fn int_loop(n)
+    var s = 0
+    for i in 0..n
+        s += i
+    return s
+
+fn float_loop(n)
+    var s = 0.0
+    for i in 0..n
+        s += i * 0.5
+    return s
+
+fn range_loop(n)
+    var s = 0
+    for i in 0..n
+        s += 1
+    return s
+
+fn make_adder(x)
+    fn add(y)
+        return x + y
+    return add
+
+fn closure_bench(n)
+    let adder = make_adder(1)
+    var s = 0
+    for i in 0..n
+        s = adder(s)
+    return s
+
+fn dict_bench(n)
+    var d = {}
+    for i in 0..n
+        d[str(i)] = i
+    var s = 0
+    for i in 0..n
+        s += d[str(i)]
+    return s
+
+class Point
+    x: Float = 0.0
+    y: Float = 0.0
+    fn __init__(self, x, y)
+        self.x = x
+        self.y = y
+    fn dist(self)
+        return math.sqrt(self.x*self.x + self.y*self.y)
+
+fn oop_bench(n)
+    var s = 0.0
+    for i in 0..n
+        let p = Point(i * 1.0, (i+1) * 1.0)
+        s += p.dist()
+    return s
+
+fn fact(n)
+    if n <= 1
+        return 1
+    return n * fact(n-1)
+
+fn fact_bench(n)
+    var s = 0
+    for i in 0..n
+        s += fact(20)
+    return s
+
+println("=== Neba v0.2.26 Benchmarks ===")
+
+var t0 = 0
+var t1 = 0
+
+t0 = time_ms()
+let r1 = fib(35)
+t1 = time_ms()
+println(f"  B1 fib(35):          {t1-t0}ms  (result={r1})")
+
+t0 = time_ms()
+let r2 = int_loop(10000000)
+t1 = time_ms()
+println(f"  B2 int_loop(10M):    {t1-t0}ms  (result={r2})")
+
+t0 = time_ms()
+let r3 = float_loop(5000000)
+t1 = time_ms()
+println(f"  B3 float_loop(5M):   {t1-t0}ms  (result={r3})")
+
+t0 = time_ms()
+let r4 = range_loop(1000000)
+t1 = time_ms()
+println(f"  B4 range_loop(1M):   {t1-t0}ms  (result={r4})")
+
+t0 = time_ms()
+let r5 = closure_bench(500000)
+t1 = time_ms()
+println(f"  B5 closure(500k):    {t1-t0}ms  (result={r5})")
+
+t0 = time_ms()
+let r6 = dict_bench(100000)
+t1 = time_ms()
+println(f"  B6 dict(100k):       {t1-t0}ms  (result={r6})")
+
+t0 = time_ms()
+let r7 = oop_bench(100000)
+t1 = time_ms()
+println(f"  B7 oop(100k):        {t1-t0}ms")
+
+t0 = time_ms()
+let r8 = fact_bench(100000)
+t1 = time_ms()
+println(f"  B10 fact(20)x100k:   {t1-t0}ms")

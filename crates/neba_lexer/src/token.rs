@@ -42,7 +42,7 @@ pub enum TokenKind {
     If, Elif, Else, While, For, In, Break, Continue, Return, Match, Case,
 
     // Keywords — declarations
-    Let, Var, Fn, Class, Trait, Impl, Enum, Type, Mod, Use,
+    Let, Var, Fn, Class, Trait, Impl, Enum, Mod, Use,
 
     // Keywords — concurrency
     Spawn, Await, Async,
@@ -101,7 +101,6 @@ pub fn lookup_keyword(s: &str) -> Option<TokenKind> {
         "trait"    => Some(TokenKind::Trait),
         "impl"     => Some(TokenKind::Impl),
         "enum"     => Some(TokenKind::Enum),
-        "type"     => Some(TokenKind::Type),
         "mod"      => Some(TokenKind::Mod),
         "use"      => Some(TokenKind::Use),
         "spawn"    => Some(TokenKind::Spawn),
