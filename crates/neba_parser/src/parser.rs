@@ -236,11 +236,42 @@ impl Parser {
         self.skip_newlines();
         while !matches!(self.peek_kind(), TokenKind::Dedent | TokenKind::Eof) {
             if matches!(self.peek_kind(), TokenKind::Newline) { self.advance(); continue; }
-            methods.push(self.parse_stmt());
+            // Dentro un trait, le fn possono avere body opzionale (solo firma)
+            if matches!(self.peek_kind(), TokenKind::Fn) {
+                methods.push(self.parse_trait_fn());
+            } else {
+                methods.push(self.parse_stmt());
+            }
         }
         self.match_tok(&TokenKind::Dedent);
         Node::new(StmtKind::Trait { name, methods }, span)
     }
+
+    /// Parsa una funzione dentro un trait: il body è opzionale.
+    /// Se dopo la firma c'è Indent → body normale; altrimenti body vuoto (solo firma).
+    fn parse_trait_fn(&mut self) -> Stmt {
+        let span = self.current_span();
+        self.advance(); // consume `fn`
+        let name = match self.peek_kind().clone() {
+            TokenKind::Identifier(s) => { self.advance(); s }
+            _ => return self.error_stmt(ParseError::UnexpectedToken {
+                expected: "function name".to_string(), found: self.peek_kind().clone(), span: self.current_span(),
+            }),
+        };
+        if let Err(e) = self.expect(&TokenKind::LParen, "'('") { return self.error_stmt(e); }
+        let params = self.parse_params();
+        if let Err(e) = self.expect(&TokenKind::RParen, "')'") { return self.error_stmt(e); }
+        let return_ty = if self.match_tok(&TokenKind::Arrow) { Some(self.parse_type()) } else { None };
+        self.expect_newline();
+        // Body opzionale: se il prossimo token NON è Indent, la fn è solo una firma
+        let body = if matches!(self.peek_kind(), TokenKind::Indent) {
+            self.parse_block()
+        } else {
+            Vec::new() // firma senza body
+        };
+        Node::new(StmtKind::Fn { name, params, return_ty, body, is_async: false }, span)
+    }
+
 
     fn parse_impl(&mut self) -> Stmt {
         let span = self.current_span();

@@ -53,6 +53,24 @@ pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     reg!("sort",     neba_sort);
     reg!("reverse",  neba_reverse);
     reg!("join",     neba_join);
+    // Array helpers (v0.2.30)
+    reg!("flatten",  col_flatten);
+    reg!("unique",   col_unique);
+    reg!("concat",   col_concat);
+    reg!("slice",    neba_slice_arr);
+    reg!("index",    neba_index_arr);
+    reg!("count",    neba_count_arr);
+    // Dict helpers (v0.2.30)
+    reg!("merge",    neba_merge_dict);
+    reg!("dict_get", neba_dict_get);
+    // Type predicates (v0.2.30)
+    reg!("is_int",   neba_is_int);
+    reg!("is_float", neba_is_float);
+    reg!("is_str",   neba_is_str);
+    reg!("is_bool",  neba_is_bool);
+    reg!("is_none",  neba_is_none);
+    reg!("is_array", neba_is_array);
+    reg!("is_dict",  neba_is_dict);
     // ── String convenience globals (v0.2.25) ─────────────────────────────
     reg!("upper",      str_upper);
     reg!("lower",      str_lower);
@@ -70,6 +88,13 @@ pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     reg!("title",      str_title);
     reg!("format",     neba_format);
     reg!("zfill",      str_zfill);
+    // String aliases (v0.2.30)
+    reg!("index_of",   str_find);        // alias for find
+    reg!("char_at",    neba_char_at);    // string.char_at(s, i)
+    reg!("pad_left",   str_pad_left);
+    reg!("pad_right",  str_pad_right);
+    reg!("is_digit",   str_is_digit);
+    reg!("is_alpha",   str_is_alpha);
     // ── TypedArray (v0.2.6) ───────────────────────────────────────────────
     register_typed_array_globals(globals);
     register_nd_module(globals);
@@ -543,8 +568,102 @@ fn neba_reverse(args: &[Value]) -> Result<Value, String> {
     }
 }
 
-/// join(array, separator) → Str
-/// format("{} {}", arg1, arg2) — sostituisce {} in ordine con gli argomenti
+// ── Array globals (v0.2.30) ───────────────────────────────────────────────
+
+fn neba_slice_arr(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(a), Value::Int(lo), Value::Int(hi)] => {
+            let a = a.borrow();
+            let len = a.len() as i64;
+            let lo = (*lo).max(0).min(len) as usize;
+            let hi = (*hi).max(0).min(len) as usize;
+            let (lo, hi) = (lo.min(hi), lo.max(hi));
+            Ok(Value::array(a[lo..hi].to_vec()))
+        }
+        [Value::Str(s), Value::Int(lo), Value::Int(hi)] => {
+            let chars: Vec<char> = s.chars().collect();
+            let len = chars.len() as i64;
+            let lo = (*lo).max(0).min(len) as usize;
+            let hi = (*hi).max(0).min(len) as usize;
+            let (lo, hi) = (lo.min(hi), lo.max(hi));
+            Ok(Value::str(chars[lo..hi].iter().collect::<String>()))
+        }
+        _ => Err("slice(array, lo, hi) requires Array/Str and two Int".into()),
+    }
+}
+
+fn neba_index_arr(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(a), val] => {
+            match a.borrow().iter().position(|v| v == val) {
+                Some(i) => Ok(Value::Int(i as i64)),
+                None    => Ok(Value::Int(-1)),
+            }
+        }
+        _ => Err("index(array, value) requires Array and value".into()),
+    }
+}
+
+fn neba_count_arr(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(a), val] => {
+            let n = a.borrow().iter().filter(|v| *v == val).count();
+            Ok(Value::Int(n as i64))
+        }
+        _ => Err("count(array, value) requires Array and value".into()),
+    }
+}
+
+// ── Dict globals (v0.2.30) ────────────────────────────────────────────────
+
+fn neba_merge_dict(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Dict(a), Value::Dict(b)] => {
+            let mut result = a.borrow().clone();
+            for (k, v) in b.borrow().iter() { result.insert(k.clone(), v.clone()); }
+            Ok(Value::Dict(std::rc::Rc::new(std::cell::RefCell::new(result))))
+        }
+        _ => Err("merge(dict1, dict2) requires two Dicts".into()),
+    }
+}
+
+fn neba_dict_get(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Dict(d), key, default] => {
+            Ok(d.borrow().get(key).cloned().unwrap_or_else(|| default.clone()))
+        }
+        [Value::Dict(d), key] => {
+            Ok(d.borrow().get(key).cloned().unwrap_or(Value::None))
+        }
+        _ => Err("dict_get(dict, key, default?) requires Dict and key".into()),
+    }
+}
+
+// ── Type predicates (v0.2.30) ─────────────────────────────────────────────
+
+fn neba_is_int(args: &[Value])   -> Result<Value, String> { Ok(Value::Bool(matches!(args.first(), Some(Value::Int(_))))) }
+fn neba_is_float(args: &[Value]) -> Result<Value, String> { Ok(Value::Bool(matches!(args.first(), Some(Value::Float(_))))) }
+fn neba_is_str(args: &[Value])   -> Result<Value, String> { Ok(Value::Bool(matches!(args.first(), Some(Value::Str(_))))) }
+fn neba_is_bool(args: &[Value])  -> Result<Value, String> { Ok(Value::Bool(matches!(args.first(), Some(Value::Bool(_))))) }
+fn neba_is_none(args: &[Value])  -> Result<Value, String> { Ok(Value::Bool(matches!(args.first(), Some(Value::None) | None))) }
+fn neba_is_array(args: &[Value]) -> Result<Value, String> { Ok(Value::Bool(matches!(args.first(), Some(Value::Array(_))))) }
+fn neba_is_dict(args: &[Value])  -> Result<Value, String> { Ok(Value::Bool(matches!(args.first(), Some(Value::Dict(_))))) }
+
+// ── char_at global (v0.2.30) ──────────────────────────────────────────────
+
+fn neba_char_at(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Str(s), Value::Int(i)] => {
+            let chars: Vec<char> = s.chars().collect();
+            let idx = if *i < 0 { (chars.len() as i64 + i) as usize } else { *i as usize };
+            chars.get(idx).map(|c| Value::str(c.to_string()))
+                .ok_or_else(|| format!("char_at: index {} out of bounds", i))
+        }
+        _ => Err("char_at(str, i) requires Str and Int".into()),
+    }
+}
+
+
 fn neba_format(args: &[Value]) -> Result<Value, String> {
     match args.first() {
         Some(Value::Str(tmpl)) => {
@@ -610,10 +729,11 @@ pub fn register_typed_array_globals(globals: &mut FxHashMap<String, (Value, bool
         };
     }
     // Costruttori
-    reg!("Float64",   ta_float64);
-    reg!("Float32",   ta_float32);
-    reg!("Int64",     ta_int64);
-    reg!("Int32",     ta_int32);
+    reg!("Float64",    ta_float64);
+    reg!("Float32",    ta_float32);
+    reg!("Int64",      ta_int64);
+    reg!("Int32",      ta_int32);
+    reg!("TypedArray", ta_typed_array);   // v0.2.30: TypedArray(n, "dtype") o TypedArray([...], "dtype")
     // Costruttori di utilità
     reg!("zeros",     ta_zeros);
     reg!("ones",      ta_ones);
@@ -630,6 +750,7 @@ pub fn register_typed_array_globals(globals: &mut FxHashMap<String, (Value, bool
 // ── Costruttori ──────────────────────────────────────────────────────────
 
 /// Float64([1.0, 2.0, 3.0]) → Float64Array
+/// Float64(n) → Float64Array of n zeros
 fn ta_float64(args: &[Value]) -> Result<Value, String> {
     match args.first() {
         Some(Value::Array(a)) => {
@@ -638,10 +759,43 @@ fn ta_float64(args: &[Value]) -> Result<Value, String> {
                 .collect();
             Ok(Value::typed_array(TypedArrayData::Float64(v?)))
         }
-        Some(v) => Err(format!("Float64() expects Array, got {}", v.type_name())),
+        Some(Value::Int(n)) => Ok(Value::typed_array(TypedArrayData::Float64(vec![0.0f64; *n as usize]))),
+        Some(v) => Err(format!("Float64() expects Array or Int, got {}", v.type_name())),
         None => Err("Float64() requires 1 argument".into()),
     }
 }
+
+/// TypedArray(n, "dtype") or TypedArray([...], "dtype") — v0.2.30
+fn ta_typed_array(args: &[Value]) -> Result<Value, String> {
+    let dtype = match args.get(1) {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => "Float64",
+    };
+    match (args.first(), dtype) {
+        (Some(Value::Int(n)), "Float64") => Ok(Value::typed_array(TypedArrayData::Float64(vec![0.0f64; *n as usize]))),
+        (Some(Value::Int(n)), "Float32") => Ok(Value::typed_array(TypedArrayData::Float32(vec![0.0f32; *n as usize]))),
+        (Some(Value::Int(n)), "Int64")   => Ok(Value::typed_array(TypedArrayData::Int64(vec![0i64; *n as usize]))),
+        (Some(Value::Int(n)), "Int32")   => Ok(Value::typed_array(TypedArrayData::Int32(vec![0i32; *n as usize]))),
+        (Some(Value::Array(a)), "Float64") => {
+            let v: Result<Vec<f64>,_> = a.borrow().iter().map(|x| x.as_float().ok_or_else(|| x.type_name().to_string())).collect();
+            Ok(Value::typed_array(TypedArrayData::Float64(v?)))
+        }
+        (Some(Value::Array(a)), "Float32") => {
+            let v: Result<Vec<f32>,_> = a.borrow().iter().map(|x| x.as_float().map(|f| f as f32).ok_or_else(|| x.type_name().to_string())).collect();
+            Ok(Value::typed_array(TypedArrayData::Float32(v?)))
+        }
+        (Some(Value::Array(a)), "Int64") => {
+            let v: Vec<i64> = a.borrow().iter().map(|x| match x { Value::Int(n) => *n, Value::Float(f) => *f as i64, _ => 0 }).collect();
+            Ok(Value::typed_array(TypedArrayData::Int64(v)))
+        }
+        (Some(Value::Array(a)), "Int32") => {
+            let v: Vec<i32> = a.borrow().iter().map(|x| match x { Value::Int(n) => *n as i32, Value::Float(f) => *f as i32, _ => 0 }).collect();
+            Ok(Value::typed_array(TypedArrayData::Int32(v)))
+        }
+        _ => Err("TypedArray(n|list, dtype) — dtype: Float64/Float32/Int64/Int32".into()),
+    }
+}
+
 
 /// Float32([1.0, 2.0]) → Float32Array
 fn ta_float32(args: &[Value]) -> Result<Value, String> {
@@ -920,6 +1074,9 @@ pub fn make_math_module() -> Value {
         entry("lcm",    math_lcm),
         entry("isnan",  math_isnan),
         entry("isinf",  math_isinf),
+        entry("is_nan", math_isnan),    // alias v0.2.30
+        entry("is_inf", math_isinf),    // alias v0.2.30
+        entry("is_finite", math_isfinite), // v0.2.30
         entry("degrees",math_degrees),
         entry("radians",math_radians),
         entry("hypot",  math_hypot),
@@ -1098,6 +1255,14 @@ fn math_isinf(args: &[Value]) -> Result<Value, String> {
         Some(Value::Float(f)) => Ok(Value::Bool(f.is_infinite())),
         Some(_) => Ok(Value::Bool(false)),
         None => Err("isinf() requires 1 argument".into()),
+    }
+}
+fn math_isfinite(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Float(f)) => Ok(Value::Bool(f.is_finite())),
+        Some(Value::Int(_))   => Ok(Value::Bool(true)),
+        Some(_) => Ok(Value::Bool(false)),
+        None => Err("is_finite() requires 1 argument".into()),
     }
 }
 fn math_degrees(args: &[Value]) -> Result<Value, String> {

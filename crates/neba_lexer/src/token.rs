@@ -108,6 +108,7 @@ pub fn lookup_keyword(s: &str) -> Option<TokenKind> {
         "async"    => Some(TokenKind::Async),
         "Some"     => Some(TokenKind::Some),
         "None"     => Some(TokenKind::NoneLiteral),
+        "none"     => Some(TokenKind::NoneLiteral),  // alias v0.2.30
         "Ok"       => Some(TokenKind::Ok),
         "Err"      => Some(TokenKind::Err),
         "and"      => Some(TokenKind::And),
