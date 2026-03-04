@@ -44,6 +44,19 @@ pub struct Chunk {
     pub fn_protos: Vec<FnProto>,
     /// Mappa offset→riga sorgente per debug/error reporting
     lines: Vec<(usize, u32)>, // (offset_start, line)
+    /// Indice per deduplicazione O(1) in add_const (solo scalari: Int/Float/Bool/Str/None)
+    const_index: std::collections::HashMap<ConstKey, u16>,
+}
+
+/// Chiave hashable per valori scalari nel pool costanti.
+#[derive(Hash, PartialEq, Eq, Debug, Clone)]
+enum ConstKey {
+    Int(i64),
+    // Float serializzato come bits per Eq/Hash
+    Float(u64),
+    Bool(bool),
+    Str(String),
+    None,
 }
 
 impl Chunk {
@@ -131,10 +144,23 @@ impl Chunk {
     /// Aggiunge una costante al pool, restituisce l'indice.
     /// Deduplicazione semplice per Int/Bool/None/Str.
     pub fn add_const(&mut self, v: Value) -> u16 {
-        // Deduplicazione semplice per Int/Bool/None/Str
-        for (i, c) in self.constants.iter().enumerate() {
-            if values_equal(c, &v) { return i as u16; }
+        // Deduplicazione O(1) per scalari via HashMap
+        let key = match &v {
+            Value::Int(n)   => Some(ConstKey::Int(*n)),
+            Value::Float(f) => Some(ConstKey::Float(f.to_bits())),
+            Value::Bool(b)  => Some(ConstKey::Bool(*b)),
+            Value::Str(s)   => Some(ConstKey::Str(s.as_ref().clone())),
+            Value::None     => Some(ConstKey::None),
+            _               => None,
+        };
+        if let Some(k) = key {
+            if let Some(&idx) = self.const_index.get(&k) { return idx; }
+            let idx = self.constants.len() as u16;
+            self.const_index.insert(k, idx);
+            self.constants.push(v);
+            return idx;
         }
+        // FnProto e altri tipi non deduplicati: aggiungi sempre
         let idx = self.constants.len() as u16;
         self.constants.push(v);
         idx
