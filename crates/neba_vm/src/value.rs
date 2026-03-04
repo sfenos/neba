@@ -205,6 +205,8 @@ pub enum Value {
     Dict(RcDict),
     /// TypedArray compatto — Float64, Float32, Int64, Int32 (v0.2.6)
     TypedArray(RcTypedArray),
+    /// NdArray multidimensionale (v0.2.25) — layout flat row-major
+    NdArray(RcNdArray),
     Closure(RcClosure),
     /// Funzione nativa — nome come Rc<String> per ridurre la dimensione di Value (8 byte vs 24)
     NativeFn(Rc<String>, NativeFn),
@@ -242,6 +244,10 @@ impl fmt::Debug for Value {
             Value::TypedArray(t) => {
                 let d = t.borrow();
                 write!(f, "{}[{}]", d.dtype().name(), d.len())
+            }
+            Value::NdArray(nd) => {
+                let nd = nd.borrow();
+                write!(f, "NdArray(shape={:?}, dtype={})", nd.shape, nd.data.dtype().name())
             }
             Value::Closure(c)   => write!(f, "Closure({})", c.proto.name),
             Value::NativeFn(n,_)=> write!(f, "NativeFn({})", n),
@@ -285,6 +291,25 @@ impl fmt::Display for Value {
                     .collect();
                 write!(f, "{}[{}]", dtype, items.join(", "))
             }
+            Value::NdArray(nd) => {
+                fn fmt_nd(nd: &NdArray, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    if nd.ndim() == 1 {
+                        let items: Vec<String> = (0..nd.size()).map(|i| nd.data.get(i).unwrap().to_string()).collect();
+                        write!(f, "[{}]", items.join(", "))
+                    } else {
+                        write!(f, "[")?;
+                        for i in 0..nd.shape[0] {
+                            if i > 0 { write!(f, ", ")?; }
+                            match nd.get_axis0(i).unwrap() {
+                                Value::NdArray(sub) => fmt_nd(&sub.borrow(), f)?,
+                                v => write!(f, "{}", v)?,
+                            }
+                        }
+                        write!(f, "]")
+                    }
+                }
+                fmt_nd(&nd.borrow(), f)
+            }
             Value::Closure(c) => write!(f, "<fn {}>", c.proto.name),
             Value::NativeFn(n, _) => write!(f, "<built-in {}>", n),
             Value::Some_(v)  => write!(f, "Some({})", v),
@@ -317,6 +342,7 @@ impl PartialEq for Value {
             (Value::Dict(a),  Value::Dict(b))  => *a.borrow() == *b.borrow(),
             // TypedArray: uguaglianza per identità (stesso Rc)
             (Value::TypedArray(a), Value::TypedArray(b)) => Rc::ptr_eq(a, b),
+            (Value::NdArray(a),    Value::NdArray(b))    => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -342,6 +368,7 @@ impl Hash for Value {
             Value::Instance(i) => { 7u8.hash(state); Rc::as_ptr(i).hash(state); }
             Value::Closure(c)  => { 8u8.hash(state); Rc::as_ptr(c).hash(state); }
             Value::TypedArray(t) => { 9u8.hash(state); Rc::as_ptr(t).hash(state); }
+            Value::NdArray(nd)   => { 19u8.hash(state); Rc::as_ptr(nd).hash(state); }
             Value::Some_(v)  => { 10u8.hash(state); v.hash(state); }
             Value::Ok_(v)    => { 11u8.hash(state); v.hash(state); }
             Value::Err_(v)   => { 12u8.hash(state); v.hash(state); }
@@ -391,6 +418,7 @@ impl Value {
             Value::Array(a) => !a.borrow().is_empty(),
             Value::Dict(d)  => !d.borrow().is_empty(),
             Value::TypedArray(t) => !t.borrow().is_empty(),
+            Value::NdArray(nd)   => nd.borrow().size() > 0,
             _               => true,
         }
     }
@@ -405,6 +433,7 @@ impl Value {
             Value::Array(_)     => "Array",
             Value::Dict(_)      => "Dict",
             Value::TypedArray(t) => t.borrow().dtype().array_type_name(),
+            Value::NdArray(_)    => "NdArray",
             Value::Closure(_)   => "Function",
             Value::NativeFn(_,_)=> "NativeFunction",
             Value::Some_(_)     => "Some",
@@ -455,7 +484,307 @@ impl Value {
     pub fn typed_array(data: TypedArrayData) -> Self {
         Value::TypedArray(Rc::new(RefCell::new(data)))
     }
+
+    /// Costruisce un Value::NdArray da NdArray
+    pub fn nd_array(nd: NdArray) -> Self {
+        Value::NdArray(Rc::new(RefCell::new(nd)))
+    }
 }
 
 
 
+
+// ── NdArray — array multidimensionale (v0.2.25) ───────────────────────────
+
+/// Array multidimensionale con layout flat (row-major, come NumPy).
+/// Supporta dtype Float64, Float32, Int64, Int32.
+/// shape = [rows, cols, ...], data = Vec<f64> / Vec<f32> / Vec<i64> / Vec<i32>
+#[derive(Debug, Clone)]
+pub struct NdArray {
+    pub shape: Vec<usize>,
+    pub data:  TypedArrayData,
+}
+
+impl NdArray {
+    /// Crea un NdArray di zeri con forma e dtype dati.
+    pub fn zeros(shape: Vec<usize>, dtype: Dtype) -> Self {
+        let n = shape.iter().product::<usize>().max(1);
+        let data = match dtype {
+            Dtype::Float64 => TypedArrayData::Float64(vec![0.0f64; n]),
+            Dtype::Float32 => TypedArrayData::Float32(vec![0.0f32; n]),
+            Dtype::Int64   => TypedArrayData::Int64(vec![0i64; n]),
+            Dtype::Int32   => TypedArrayData::Int32(vec![0i32; n]),
+        };
+        NdArray { shape, data }
+    }
+
+    /// Crea un NdArray da dati flat e shape.
+    pub fn from_flat(data: TypedArrayData, shape: Vec<usize>) -> Result<Self, String> {
+        let expected: usize = shape.iter().product();
+        if data.len() != expected {
+            return Err(format!("shape {:?} requires {} elements, got {}", shape, expected, data.len()));
+        }
+        Ok(NdArray { shape, data })
+    }
+
+    /// Numero di dimensioni.
+    pub fn ndim(&self) -> usize { self.shape.len() }
+
+    /// Numero totale di elementi.
+    pub fn size(&self) -> usize { self.data.len() }
+
+    /// Calcola l'indice flat da indici multidimensionali (row-major).
+    pub fn flat_index(&self, indices: &[usize]) -> Result<usize, String> {
+        if indices.len() != self.shape.len() {
+            return Err(format!("expected {} indices, got {}", self.shape.len(), indices.len()));
+        }
+        let mut idx = 0usize;
+        let mut stride = 1usize;
+        for (&dim_size, &i) in self.shape.iter().zip(indices.iter()).rev() {
+            if i >= dim_size {
+                return Err(format!("index {} out of bounds for dimension size {}", i, dim_size));
+            }
+            idx += i * stride;
+            stride *= dim_size;
+        }
+        Ok(idx)
+    }
+
+    /// Legge un elemento scalare dato gli indici.
+    pub fn get_nd(&self, indices: &[usize]) -> Result<Value, String> {
+        let fi = self.flat_index(indices)?;
+        self.data.get(fi).ok_or_else(|| format!("index out of bounds"))
+    }
+
+    /// Scrive un elemento scalare dato gli indici.
+    pub fn set_nd(&mut self, indices: &[usize], v: Value) -> Result<(), String> {
+        let fi = self.flat_index(indices)?;
+        self.data.set(fi, v)
+    }
+
+    /// Restituisce una "fetta" lungo il primo asse (row per 2D).
+    /// Restituisce NdArray con shape[1:] o Value scalare se ndim==1.
+    pub fn get_axis0(&self, i: usize) -> Result<Value, String> {
+        if i >= self.shape[0] {
+            return Err(format!("index {} out of bounds for shape {:?}", i, self.shape));
+        }
+        if self.ndim() == 1 {
+            return self.data.get(i).ok_or_else(|| "index out of bounds".into());
+        }
+        // stride del primo asse
+        let row_len: usize = self.shape[1..].iter().product();
+        let start = i * row_len;
+        let new_shape = self.shape[1..].to_vec();
+        let slice_data = self.slice_flat(start, start + row_len);
+        Ok(Value::nd_array(NdArray { shape: new_shape, data: slice_data }))
+    }
+
+    fn slice_flat(&self, start: usize, end: usize) -> TypedArrayData {
+        match &self.data {
+            TypedArrayData::Float64(v) => TypedArrayData::Float64(v[start..end].to_vec()),
+            TypedArrayData::Float32(v) => TypedArrayData::Float32(v[start..end].to_vec()),
+            TypedArrayData::Int64(v)   => TypedArrayData::Int64(v[start..end].to_vec()),
+            TypedArrayData::Int32(v)   => TypedArrayData::Int32(v[start..end].to_vec()),
+        }
+    }
+
+    /// Trasposizione: inverte le dimensioni (generalizzata a N-D).
+    pub fn transpose_axes(&self, axes: Option<Vec<usize>>) -> Result<NdArray, String> {
+        let ndim = self.ndim();
+        let axes = axes.unwrap_or_else(|| (0..ndim).rev().collect());
+        if axes.len() != ndim { return Err("transpose: wrong number of axes".into()); }
+        let new_shape: Vec<usize> = axes.iter().map(|&a| self.shape[a]).collect();
+        let size = self.size();
+        let mut result = NdArray::zeros(new_shape.clone(), self.data.dtype());
+
+        // Calcola strides originali
+        let mut old_strides = vec![1usize; ndim];
+        for i in (0..ndim-1).rev() { old_strides[i] = old_strides[i+1] * self.shape[i+1]; }
+        let mut new_strides = vec![1usize; ndim];
+        for i in (0..ndim-1).rev() { new_strides[i] = new_strides[i+1] * new_shape[i+1]; }
+
+        for flat_old in 0..size {
+            // old multi-index
+            let mut rem = flat_old;
+            let mut old_idx = vec![0usize; ndim];
+            for d in 0..ndim {
+                old_idx[d] = rem / old_strides[d];
+                rem %= old_strides[d];
+            }
+            // new multi-index via axes permutation
+            let mut new_idx = vec![0usize; ndim];
+            for (new_d, &old_d) in axes.iter().enumerate() { new_idx[new_d] = old_idx[old_d]; }
+            let flat_new: usize = new_idx.iter().zip(new_strides.iter()).map(|(&i, &s)| i*s).sum();
+            let val = self.data.get(flat_old).unwrap();
+            result.data.set(flat_new, val).unwrap();
+        }
+        Ok(result)
+    }
+
+    /// Reshape: cambia shape senza copiare i dati (se la size coincide).
+    pub fn reshape(&self, new_shape: Vec<usize>) -> Result<NdArray, String> {
+        let new_size: usize = new_shape.iter().product();
+        if new_size != self.size() {
+            return Err(format!("reshape: cannot reshape size {} to {:?} (size {})", self.size(), new_shape, new_size));
+        }
+        Ok(NdArray { shape: new_shape, data: self.data.clone() })
+    }
+
+    /// Matmul 2D (A @ B).
+    pub fn matmul(&self, other: &NdArray) -> Result<NdArray, String> {
+        if self.ndim() != 2 || other.ndim() != 2 {
+            return Err("matmul requires 2D arrays".into());
+        }
+        let (m, k) = (self.shape[0], self.shape[1]);
+        let (k2, n) = (other.shape[0], other.shape[1]);
+        if k != k2 { return Err(format!("matmul: shape mismatch ({},{})*({},{})", m, k, k2, n)); }
+        let mut out = NdArray::zeros(vec![m, n], Dtype::Float64);
+        for i in 0..m {
+            for j in 0..n {
+                let mut acc = 0.0f64;
+                for p in 0..k {
+                    let a = self.data.get(i*k + p).unwrap().as_float().unwrap_or(0.0);
+                    let b = other.data.get(p*n + j).unwrap().as_float().unwrap_or(0.0);
+                    acc += a * b;
+                }
+                out.data.set(i*n + j, Value::Float(acc)).unwrap();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Operazione element-wise (broadcast scalar o stesso shape).
+    pub fn ewise_op<F: Fn(f64, f64) -> f64>(&self, other: &NdArray, op: F) -> Result<NdArray, String> {
+        // Supporto broadcast: scalar (size 1) si estende
+        let broadcast_scalar = other.size() == 1;
+        if !broadcast_scalar && self.shape != other.shape {
+            return Err(format!("shape mismatch: {:?} vs {:?}", self.shape, other.shape));
+        }
+        let size = self.size();
+        let mut out = NdArray::zeros(self.shape.clone(), Dtype::Float64);
+        for i in 0..size {
+            let a = self.data.get(i).unwrap().as_float().unwrap_or(0.0);
+            let b = if broadcast_scalar {
+                other.data.get(0).unwrap().as_float().unwrap_or(0.0)
+            } else {
+                other.data.get(i).unwrap().as_float().unwrap_or(0.0)
+            };
+            out.data.set(i, Value::Float(op(a, b))).unwrap();
+        }
+        Ok(out)
+    }
+
+    pub fn ewise_scalar<F: Fn(f64, f64) -> f64>(&self, scalar: f64, op: F) -> NdArray {
+        let size = self.size();
+        let mut out = NdArray::zeros(self.shape.clone(), Dtype::Float64);
+        for i in 0..size {
+            let a = self.data.get(i).unwrap().as_float().unwrap_or(0.0);
+            out.data.set(i, Value::Float(op(a, scalar))).unwrap();
+        }
+        out
+    }
+
+    pub fn ewise_unary<F: Fn(f64) -> f64>(&self, op: F) -> NdArray {
+        let size = self.size();
+        let mut out = NdArray::zeros(self.shape.clone(), Dtype::Float64);
+        for i in 0..size {
+            let a = self.data.get(i).unwrap().as_float().unwrap_or(0.0);
+            out.data.set(i, Value::Float(op(a))).unwrap();
+        }
+        out
+    }
+
+    pub fn sum_all(&self) -> f64 {
+        (0..self.size()).map(|i| self.data.get(i).unwrap().as_float().unwrap_or(0.0)).sum()
+    }
+    pub fn mean_all(&self) -> f64 { self.sum_all() / self.size() as f64 }
+    pub fn min_all(&self) -> f64 {
+        (0..self.size()).map(|i| self.data.get(i).unwrap().as_float().unwrap_or(f64::INFINITY))
+            .fold(f64::INFINITY, f64::min)
+    }
+    pub fn max_all(&self) -> f64 {
+        (0..self.size()).map(|i| self.data.get(i).unwrap().as_float().unwrap_or(f64::NEG_INFINITY))
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
+    pub fn argmin(&self) -> usize {
+        let mut best = (0, f64::INFINITY);
+        for i in 0..self.size() {
+            let v = self.data.get(i).unwrap().as_float().unwrap_or(f64::INFINITY);
+            if v < best.1 { best = (i, v); }
+        }
+        best.0
+    }
+    pub fn argmax(&self) -> usize {
+        let mut best = (0, f64::NEG_INFINITY);
+        for i in 0..self.size() {
+            let v = self.data.get(i).unwrap().as_float().unwrap_or(f64::NEG_INFINITY);
+            if v > best.1 { best = (i, v); }
+        }
+        best.0
+    }
+    pub fn std_dev(&self, ddof: usize) -> f64 {
+        let n = self.size();
+        if n <= ddof { return 0.0; }
+        let m = self.mean_all();
+        let var = (0..n).map(|i| { let x = self.data.get(i).unwrap().as_float().unwrap_or(0.0) - m; x*x }).sum::<f64>() / (n - ddof) as f64;
+        var.sqrt()
+    }
+    pub fn cumsum(&self) -> NdArray {
+        let size = self.size();
+        let mut out = NdArray::zeros(self.shape.clone(), Dtype::Float64);
+        let mut acc = 0.0f64;
+        for i in 0..size {
+            acc += self.data.get(i).unwrap().as_float().unwrap_or(0.0);
+            out.data.set(i, Value::Float(acc)).unwrap();
+        }
+        out
+    }
+    pub fn flatten(&self) -> NdArray {
+        NdArray { shape: vec![self.size()], data: self.data.clone() }
+    }
+    pub fn clip(&self, lo: f64, hi: f64) -> NdArray {
+        self.ewise_unary(|x| x.max(lo).min(hi))
+    }
+    pub fn where_cond(cond: &NdArray, a: &NdArray, b: &NdArray) -> Result<NdArray, String> {
+        let n = cond.size();
+        if a.size() != n || b.size() != n { return Err("where: shapes must match".into()); }
+        let mut out = NdArray::zeros(cond.shape.clone(), Dtype::Float64);
+        for i in 0..n {
+            let c = cond.data.get(i).unwrap().as_float().unwrap_or(0.0);
+            let v = if c != 0.0 { a.data.get(i).unwrap() } else { b.data.get(i).unwrap() };
+            out.data.set(i, v).unwrap();
+        }
+        Ok(out)
+    }
+
+    /// Somma lungo un asse.
+    pub fn sum_axis(&self, axis: usize) -> Result<NdArray, String> {
+        if axis >= self.ndim() { return Err(format!("axis {} out of range for ndim {}", axis, self.ndim())); }
+        let mut new_shape = self.shape.clone();
+        new_shape.remove(axis);
+        if new_shape.is_empty() { new_shape = vec![1]; }
+        let mut out = NdArray::zeros(new_shape.clone(), Dtype::Float64);
+        let size = self.size();
+        let mut strides = vec![1usize; self.ndim()];
+        for i in (0..self.ndim()-1).rev() { strides[i] = strides[i+1] * self.shape[i+1]; }
+        for fi in 0..size {
+            let mut rem = fi;
+            let mut mi = vec![0usize; self.ndim()];
+            for d in 0..self.ndim() { mi[d] = rem / strides[d]; rem %= strides[d]; }
+            let mut out_mi: Vec<usize> = mi.clone();
+            out_mi.remove(axis);
+            let out_strides: Vec<usize> = {
+                let mut s = vec![1usize; out.ndim()];
+                for i in (0..out.ndim().saturating_sub(1)).rev() { s[i] = s[i+1] * out.shape[i+1]; }
+                s
+            };
+            let out_fi: usize = out_mi.iter().zip(out_strides.iter()).map(|(&i,&s)| i*s).sum();
+            let cur = out.data.get(out_fi).unwrap().as_float().unwrap_or(0.0);
+            let add = self.data.get(fi).unwrap().as_float().unwrap_or(0.0);
+            out.data.set(out_fi, Value::Float(cur + add)).unwrap();
+        }
+        Ok(out)
+    }
+}
+
+pub type RcNdArray = Rc<RefCell<NdArray>>;

@@ -102,6 +102,9 @@ pub enum Op {
     GetIndex,
     /// `SetIndex` — pop val, pop idx, pop obj, obj[idx]=val, push None
     SetIndex,
+    /// `GetSlice [u8:flags]` — flags: bit0=has_start, bit1=has_end, bit2=has_step
+    /// pop step? end? start? obj, push obj[start:end:step]
+    GetSlice,
     /// `MakeRange [u8:inclusive]` — pop end, pop start, push Range/Array
     MakeRange,
 

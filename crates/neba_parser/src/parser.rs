@@ -471,7 +471,7 @@ impl Parser {
                 Node::new(ExprKind::Spawn(Box::new(e)), span)
             }
             TokenKind::Fn => {
-                // Lambda anonima: fn(params) => expr  oppure  fn(params):\n    body
+                // Lambda anonima: fn(params) => expr  |  fn(params) expr  |  fn(params):\n    body
                 self.advance(); // consuma 'fn'
                 self.match_tok(&TokenKind::LParen);
                 let params = self.parse_params();
@@ -484,6 +484,12 @@ impl Parser {
                         StmtKind::Return(Some(expr)),
                         ret_span,
                     );
+                    vec![ret_stmt]
+                } else if !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof | TokenKind::Comma | TokenKind::RParen) {
+                    // fn(x) expr  — espressione inline senza => (come Python lambda)
+                    let ret_span = self.current_span();
+                    let expr = self.parse_expr(Prec::None);
+                    let ret_stmt = Node::new(StmtKind::Return(Some(expr)), ret_span);
                     vec![ret_stmt]
                 } else {
                     // fn(x):\n    body
@@ -537,9 +543,36 @@ impl Parser {
             }
             TokenKind::LBracket => {
                 self.advance();
-                let index = self.parse_expr(Prec::None);
-                self.match_tok(&TokenKind::RBracket);
-                Node::new(ExprKind::Index { object: Box::new(left), index: Box::new(index) }, span)
+                // Controlla se è una slice: `[expr:...]` o `[:...]`
+                let is_empty_start = matches!(self.peek_kind(), TokenKind::Colon);
+                let start = if is_empty_start { None } else {
+                    let e = self.parse_expr(Prec::None);
+                    if matches!(e.inner, crate::ast::ExprKind::Error) { None } else { Some(e) }
+                };
+                if self.match_tok(&TokenKind::Colon) {
+                    // Slice syntax
+                    let end = if matches!(self.peek_kind(), TokenKind::RBracket | TokenKind::Colon) {
+                        None
+                    } else {
+                        Some(self.parse_expr(Prec::None))
+                    };
+                    let step = if self.match_tok(&TokenKind::Colon) {
+                        if matches!(self.peek_kind(), TokenKind::RBracket) { None }
+                        else { Some(self.parse_expr(Prec::None)) }
+                    } else { None };
+                    self.match_tok(&TokenKind::RBracket);
+                    Node::new(ExprKind::Slice {
+                        object: Box::new(left),
+                        start: start.map(Box::new),
+                        end: end.map(Box::new),
+                        step: step.map(Box::new),
+                    }, span)
+                } else {
+                    let span2 = span.clone();
+                    let index = start.unwrap_or_else(|| Node::new(ExprKind::Error, span2));
+                    self.match_tok(&TokenKind::RBracket);
+                    Node::new(ExprKind::Index { object: Box::new(left), index: Box::new(index) }, span)
+                }
             }
             TokenKind::Dot => {
                 self.advance();

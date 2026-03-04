@@ -42,6 +42,8 @@ pub enum ExprKind {
     Call   { callee: Box<Expr>, args: Vec<Expr>, kwargs: Vec<(String, Expr)> },
     Field  { object: Box<Expr>, field: String },
     Index  { object: Box<Expr>, index: Box<Expr> },
+    /// Slice: `obj[start:end]` o `obj[start:end:step]` (None = assente)
+    Slice  { object: Box<Expr>, start: Option<Box<Expr>>, end: Option<Box<Expr>>, step: Option<Box<Expr>> },
     Array(Vec<Expr>),
     /// Dizionario letterale: `{key: value, ...}` oppure `{key => value, ...}`
     Dict(Vec<(Expr, Expr)>),

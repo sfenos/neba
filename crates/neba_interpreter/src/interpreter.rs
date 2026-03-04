@@ -168,6 +168,10 @@ impl Interpreter {
                 self.env.set(name, val)
                     .map_err(|e| RuntimeError::AssignError { message: e })?;
             }
+            ExprKind::Slice { object, start, end, step } => {
+                let obj = self.eval_expr(object)?;
+                return Err(crate::RuntimeError::Generic { message: "slices not supported in tree-walking interpreter".to_string() });
+            }
             ExprKind::Index { object, index } => {
                 let obj = self.eval_expr(object)?;
                 let idx = self.eval_expr(index)?;
@@ -185,6 +189,9 @@ impl Interpreter {
                         message: "index assignment requires Array".to_string(),
                     });
                 }
+            }
+            ExprKind::Slice { .. } => {
+                return Err(crate::RuntimeError::Generic { message: "slice assignment not supported".to_string() });
             }
             ExprKind::Field { object, field } => {
                 let obj = self.eval_expr(object)?;
@@ -353,6 +360,7 @@ impl Interpreter {
                 message: "Lambda expressions require the bytecode VM (use `cargo run --bin neba`)".to_string(),
             }),
 
+            ExprKind::Slice { .. } => Err(RuntimeError::Generic { message: "slices not supported in tree-walking interpreter".to_string() }),
             ExprKind::Error => Err(RuntimeError::Generic { message: "AST error node".to_string() }),
         }
     }

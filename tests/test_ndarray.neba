@@ -1,0 +1,115 @@
+println("=== NDARRAY FULL TEST ===")
+var ok = 0
+var fail = 0
+fn check(label, got, exp)
+    if got == exp
+        ok += 1
+    else
+        fail += 1
+        println(f"  FAIL [{label}]: got={got} exp={exp}")
+
+# zeros(r, c) → NdArray
+let m = zeros(3, 4)
+check("zeros_shape_0", m.shape[0], 3)
+check("zeros_shape_1", m.shape[1], 4)
+check("zeros_ndim", m.ndim, 2)
+check("zeros_size", m.size, 12)
+
+# ones(r, c)
+let o = ones(2, 3)
+check("ones_shape", o.shape[0], 2)
+
+# indexing m[i] → row
+let a = nd.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+let row0 = a[0]
+check("row0_val", row0[0], 1.0)
+check("row1_val", a[1][1], 5.0)
+check("row2_last", a[2][2], 9.0)
+
+# operatori aritmetici
+let b = nd.ones([3, 3])
+let s = a + b
+check("add_elem", s[0][0], 2.0)
+check("add_elem2", s[1][1], 6.0)
+
+let d = a - b
+check("sub_elem", d[0][0], 0.0)
+
+let p = a * 2.0
+check("scalar_mul", p[0][0], 2.0)
+check("scalar_mul2", p[2][2], 18.0)
+
+let q = 3.0 * b
+check("left_scalar_mul", q[0][0], 3.0)
+
+let dv = a / 2.0
+check("scalar_div", dv[1][1], 2.5)
+
+# field access
+check("shape_type", a.shape[0], 3)
+check("ndim_val", a.ndim, 2)
+check("size_val", a.size, 9)
+
+# transpose T
+let t = a.T
+check("T_shape0", t.shape[0], 3)
+check("T_shape1", t.shape[1], 3)
+check("T_elem", t[0][1], 4.0)   # a[1][0]=4, dopo T diventa t[0][1]
+
+# matmul
+let x = nd.array([[1.0, 0.0], [0.0, 1.0]])  # identity
+let y = nd.array([[5.0, 6.0], [7.0, 8.0]])
+let z = nd.matmul(x, y)
+check("matmul_00", z[0][0], 5.0)
+check("matmul_11", z[1][1], 8.0)
+
+# reshape
+let flat = nd.reshape(a, [9])
+check("reshape_len", flat.ndim, 1)
+check("reshape_0", flat[0], 1.0)
+check("reshape_8", flat[8], 9.0)
+
+# nd.sum, nd.mean, nd.min, nd.max
+check("sum_all", nd.sum(a), 45.0)
+check("mean_all", nd.mean(a), 5.0)
+check("min_all", nd.min(a), 1.0)
+check("max_all", nd.max(a), 9.0)
+
+# nd.std
+let std_val = nd.std(a)
+check("std_pos", std_val > 0.0, true)
+
+# cumsum
+let cs = nd.cumsum(nd.array([1.0, 2.0, 3.0, 4.0]))
+check("cumsum_3", cs[3], 10.0)
+
+# nd.flatten
+let fl = nd.flatten(a)
+check("flatten_0", fl[0], 1.0)
+check("flatten_8", fl[8], 9.0)
+
+# nd.eye
+let eye3 = nd.eye(3)
+check("eye_diag", eye3[0][0], 1.0)
+check("eye_off",  eye3[0][1], 0.0)
+check("eye_diag2", eye3[2][2], 1.0)
+
+# nd.clip
+let clipped = nd.clip(a, 3.0, 7.0)
+check("clip_low",  clipped[0][0], 3.0)   # 1 → 3
+check("clip_mid",  clipped[1][1], 5.0)   # 5 → 5
+check("clip_high", clipped[2][2], 7.0)   # 9 → 7
+
+# nd.norm
+let v1d = nd.array([3.0, 4.0])
+check("norm_2d", nd.norm(v1d), 5.0)
+
+# zeros(n) ancora 1D backward compat
+let ta = zeros(5)
+ta[0] = 99.0
+check("ta_1d_compat", ta[0], 99.0)
+check("ta_1d_type", len(ta), 5)
+
+println(f"\n=== NdArray: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL PASSED")

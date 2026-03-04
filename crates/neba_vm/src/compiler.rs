@@ -479,6 +479,9 @@ impl Compiler {
                 self.emit_store(name, line)?;
                 // Nessun valore residuo: l'assegnazione è uno statement puro
             }
+            ExprKind::Slice { .. } => {
+                return Err(VmError::CompileError("slice assignment not supported".into()));
+            }
             ExprKind::Index { object, index } => {
                 self.compile_expr(object)?;
                 self.compile_expr(index)?;
@@ -607,6 +610,15 @@ impl Compiler {
                 self.chunk.emit_u16(idx);
             }
 
+            ExprKind::Slice { object, start, end, step } => {
+                self.compile_expr(object)?;
+                let mut flags: u8 = 0;
+                if let Some(s) = start { self.compile_expr(s)?; flags |= 1; }
+                if let Some(e) = end   { self.compile_expr(e)?; flags |= 2; }
+                if let Some(st) = step { self.compile_expr(st)?; flags |= 4; }
+                self.chunk.emit(Op::GetSlice, line);
+                self.chunk.emit_u8(flags);
+            }
             ExprKind::Index { object, index } => {
                 self.compile_expr(object)?;
                 self.compile_expr(index)?;
@@ -622,7 +634,14 @@ impl Compiler {
             ExprKind::Dict(pairs) => {
                 // Per ogni coppia, emetti prima la chiave poi il valore (ordine: k0, v0, k1, v1, ...)
                 for (key, val) in pairs {
-                    self.compile_expr(key)?;
+                    // Se la chiave è un Ident bareword (es. {x: 1}), la trattiamo come Str "x"
+                    if let ExprKind::Ident(name) = &key.inner {
+                        let idx = self.chunk.add_const(Value::str(name.clone()));
+                        self.chunk.emit(Op::Const, key.span.line as u32);
+                        self.chunk.emit_u16(idx);
+                    } else {
+                        self.compile_expr(key)?;
+                    }
                     self.compile_expr(val)?;
                 }
                 self.chunk.emit(Op::MakeDict, line);

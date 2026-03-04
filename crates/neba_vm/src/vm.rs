@@ -516,6 +516,46 @@ impl Vm {
                                 push!(Value::array(pairs.into_iter().map(|(_, v)| v).collect()));
                                 continue 'dispatch;
                             }
+                            // push(arr, val) — fast-path: evita Vec<Value> alloc
+                            "push" if argc == 2 => {
+                                let val = self.stack.pop().ok_or_else(|| VmError::Generic("stack underflow".into()))?;
+                                let arr = self.stack.pop().ok_or_else(|| VmError::Generic("stack underflow".into()))?;
+                                self.stack.pop(); // callee slot
+                                match arr {
+                                    Value::Array(a) => { a.borrow_mut().push(val); push!(Value::None); }
+                                    _ => return Err(VmError::TypeError("push: first arg must be Array".into())),
+                                }
+                                continue 'dispatch;
+                            }
+                            // pop(arr) — fast-path
+                            "pop" if argc == 1 => {
+                                let arr = self.stack.pop().ok_or_else(|| VmError::Generic("stack underflow".into()))?;
+                                self.stack.pop(); // callee slot
+                                match arr {
+                                    Value::Array(a) => { push!(a.borrow_mut().pop().unwrap_or(Value::None)); }
+                                    _ => return Err(VmError::TypeError("pop: arg must be Array".into())),
+                                }
+                                continue 'dispatch;
+                            }
+                            // len(v) — fast-path per Array/Str/Dict/TypedArray/NdArray
+                            "len" if argc == 1 => {
+                                let v = self.stack.pop().ok_or_else(|| VmError::Generic("stack underflow".into()))?;
+                                self.stack.pop(); // callee slot
+                                let n = match &v {
+                                    Value::Array(a)      => a.borrow().len() as i64,
+                                    Value::Str(s)        => s.chars().count() as i64,
+                                    Value::Dict(d)       => d.borrow().len() as i64,
+                                    Value::TypedArray(t) => t.borrow().len() as i64,
+                                    Value::NdArray(nd)   => nd.borrow().size() as i64,
+                                    Value::IntRange(s, e, inc) => {
+                                        let range = if *inc { e - s + 1 } else { e - s };
+                                        range.max(0)
+                                    }
+                                    _ => return Err(VmError::TypeError(format!("len: unsupported type {}", v.type_name()))),
+                                };
+                                push!(Value::Int(n));
+                                continue 'dispatch;
+                            }
                             _ => {}
                         }
                     }
@@ -648,13 +688,27 @@ impl Vm {
                     push!(Value::dict(pairs));
                 }
                 Op::GetIndex => { let i = pop!(); let o = pop!(); push!(self.eval_index(o, i)?); }
+                Op::GetSlice => {
+                    let flags = read_u8!();
+                    let step  = if flags & 4 != 0 { Some(pop!()) } else { None };
+                    let end   = if flags & 2 != 0 { Some(pop!()) } else { None };
+                    let start = if flags & 1 != 0 { Some(pop!()) } else { None };
+                    let obj   = pop!();
+                    push!(self.eval_slice(obj, start, end, step)?);
+                }
                 Op::SetIndex  => {
                     let val = pop!(); let idx_v = pop!(); let obj = pop!();
                     match (obj, &idx_v) {
                         (Value::Array(arr), Value::Int(i)) => { let len = arr.borrow().len(); let i = self.resolve_idx(*i, len)?; arr.borrow_mut()[i] = val; }
                         (Value::TypedArray(t), Value::Int(i)) => { let len = t.borrow().len(); let i = crate::value::resolve_idx(*i, len).map_err(VmError::Generic)?; t.borrow_mut().set(i, val).map_err(VmError::TypeError)?; }
+                        (Value::NdArray(nd), Value::Int(i)) => {
+                            let mut n = nd.borrow_mut();
+                            let ui = if *i < 0 { (n.shape[0] as i64 + i) as usize } else { *i as usize };
+                            if n.ndim() == 1 { n.data.set(ui, val).map_err(VmError::Generic)?; }
+                            else { return Err(VmError::TypeError("NdArray: use nd.set(arr, i, j, val) for multi-dim assignment".into())); }
+                        }
                         (Value::Dict(d), key) => { d.borrow_mut().insert(key.clone(), val); }
-                        _ => return Err(VmError::TypeError("index assignment requires Array, TypedArray or Dict".into())),
+                        _ => return Err(VmError::TypeError("index assignment requires Array, TypedArray, NdArray or Dict".into())),
                     }
                 }
                 Op::MakeRange => {
@@ -817,6 +871,88 @@ impl Vm {
         }
     }
 
+    /// Esegue lo slicing: obj[start:end] o obj[start:end:step]
+    fn eval_slice(&self, obj: Value, start: Option<Value>, end: Option<Value>, step: Option<Value>) -> VmResult {
+        // Converti start/end in Option<i64>
+        let to_opt_int = |v: Option<Value>| -> Result<Option<i64>, VmError> {
+            match v {
+                None => Ok(None),
+                Some(Value::Int(n)) => Ok(Some(n)),
+                Some(Value::None) => Ok(None),
+                Some(other) => Err(VmError::TypeError(format!("slice index must be Int, got {}", other.type_name()))),
+            }
+        };
+        let step_val = match &step {
+            None => 1i64,
+            Some(Value::Int(n)) => *n,
+            Some(other) => return Err(VmError::TypeError(format!("slice step must be Int, got {}", other.type_name()))),
+        };
+        if step_val == 0 { return Err(VmError::Generic("slice step cannot be zero".into())); }
+
+        match obj {
+            Value::Array(a) => {
+                let arr = a.borrow();
+                let n = arr.len() as i64;
+                let (s, e) = Self::resolve_slice_bounds(to_opt_int(start)?, to_opt_int(end)?, step_val, n);
+                let result: Vec<Value> = if step_val > 0 {
+                    (s..e).step_by(step_val as usize).filter_map(|i| arr.get(i as usize)).cloned().collect()
+                } else {
+                    let mut v = Vec::new();
+                    let mut i = s;
+                    while i > e { if let Some(x) = arr.get(i as usize) { v.push(x.clone()); } i += step_val; }
+                    v
+                };
+                Ok(Value::array(result))
+            }
+            Value::Str(s_rc) => {
+                let chars: Vec<char> = s_rc.chars().collect();
+                let n = chars.len() as i64;
+                let (s, e) = Self::resolve_slice_bounds(to_opt_int(start)?, to_opt_int(end)?, step_val, n);
+                let result: String = if step_val > 0 {
+                    (s..e).step_by(step_val as usize).filter_map(|i| chars.get(i as usize)).collect()
+                } else {
+                    let mut v = Vec::new();
+                    let mut i = s;
+                    while i > e { if let Some(c) = chars.get(i as usize) { v.push(*c); } i += step_val; }
+                    v.into_iter().collect()
+                };
+                Ok(Value::str(result))
+            }
+            Value::TypedArray(ta) => {
+                let ta_ref = ta.borrow();
+                let n = ta_ref.len() as i64;
+                let (s, e) = Self::resolve_slice_bounds(to_opt_int(start)?, to_opt_int(end)?, step_val, n);
+                let indices: Vec<i64> = if step_val > 0 {
+                    (s..e).step_by(step_val as usize).collect()
+                } else {
+                    let mut v = Vec::new();
+                    let mut i = s;
+                    while i > e { v.push(i); i += step_val; }
+                    v
+                };
+                let sliced = ta_ref.slice_indices(&indices, n as usize).map_err(VmError::Generic)?;
+                Ok(Value::typed_array(sliced))
+            }
+            other => Err(VmError::TypeError(format!("slice not supported on {}", other.type_name()))),
+        }
+    }
+
+    fn resolve_slice_bounds(start: Option<i64>, end: Option<i64>, step: i64, n: i64) -> (i64, i64) {
+        let normalize = |i: i64, default_pos: i64, default_neg: i64| -> i64 {
+            let _ = default_neg; // unused for now
+            if i < 0 { (n + i).max(0) } else { i.min(n) }
+        };
+        if step > 0 {
+            let s = start.map(|i| if i < 0 { (n + i).max(0) } else { i.min(n) }).unwrap_or(0);
+            let e = end.map(|i| if i < 0 { (n + i).max(0) } else { i.min(n) }).unwrap_or(n);
+            (s, e.max(s))
+        } else {
+            let s = start.map(|i| if i < 0 { (n + i).max(-1) } else { (i.min(n - 1)) }).unwrap_or(n - 1);
+            let e = end.map(|i| if i < 0 { (n + i).max(-1) } else { i.min(n) }).unwrap_or(-1);
+            (s, e)
+        }
+    }
+
     /// Converte un Value in stringa per display, chiamando `__str__` se è un'Instance.
     fn value_display_string(&mut self, val: Value) -> VmResult<String> {
         if let Value::Instance(ref inst) = val {
@@ -848,6 +984,11 @@ impl Vm {
             (Value::Float(a), Value::Int(b))   => Ok(Value::Float(a + *b as f64)),
             (Value::Str(a),   Value::Str(b))   => Ok(Value::str(format!("{}{}", a, b))),
             (Value::TypedArray(_), _) | (_, Value::TypedArray(_)) => typed_binop(&l, &r, |a,b| a+b, |a,b| a+b),
+            (Value::NdArray(a), Value::NdArray(b)) => Ok(Value::nd_array(a.borrow().ewise_op(&b.borrow(), |x,y| x+y).map_err(VmError::TypeError)?)),
+            (Value::NdArray(a), Value::Float(b)) => Ok(Value::nd_array(a.borrow().ewise_scalar(*b, |x,y| x+y))),
+            (Value::NdArray(a), Value::Int(b))   => Ok(Value::nd_array(a.borrow().ewise_scalar(*b as f64, |x,y| x+y))),
+            (Value::Float(a), Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a, |x,y| y+x))),
+            (Value::Int(a),   Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a as f64, |x,y| y+x))),
             _ => Err(VmError::TypeError(format!("'+' between {} and {}", l.type_name(), r.type_name()))),
         }
     }
@@ -858,6 +999,11 @@ impl Vm {
             (Value::Int(a),   Value::Float(b)) => Ok(Value::Float(*a as f64 - b)),
             (Value::Float(a), Value::Int(b))   => Ok(Value::Float(a - *b as f64)),
             (Value::TypedArray(_), _) | (_, Value::TypedArray(_)) => typed_binop(&l, &r, |a,b| a-b, |a,b| a-b),
+            (Value::NdArray(a), Value::NdArray(b)) => Ok(Value::nd_array(a.borrow().ewise_op(&b.borrow(), |x,y| x-y).map_err(VmError::TypeError)?)),
+            (Value::NdArray(a), Value::Float(b)) => Ok(Value::nd_array(a.borrow().ewise_scalar(*b, |x,y| x-y))),
+            (Value::NdArray(a), Value::Int(b))   => Ok(Value::nd_array(a.borrow().ewise_scalar(*b as f64, |x,y| x-y))),
+            (Value::Float(a), Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a, |x,y| y-x))),
+            (Value::Int(a),   Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a as f64, |x,y| y-x))),
             _ => Err(VmError::TypeError(format!("'-' between {} and {}", l.type_name(), r.type_name()))),
         }
     }
@@ -870,12 +1016,22 @@ impl Vm {
             (Value::Str(s),   Value::Int(n))   => Ok(Value::str(s.repeat((*n).max(0) as usize))),
             (Value::Int(n),   Value::Str(s))   => Ok(Value::str(s.repeat((*n).max(0) as usize))),
             (Value::TypedArray(_), _) | (_, Value::TypedArray(_)) => typed_binop(&l, &r, |a,b| a*b, |a,b| a*b),
+            (Value::NdArray(a), Value::NdArray(b)) => Ok(Value::nd_array(a.borrow().ewise_op(&b.borrow(), |x,y| x*y).map_err(VmError::TypeError)?)),
+            (Value::NdArray(a), Value::Float(b)) => Ok(Value::nd_array(a.borrow().ewise_scalar(*b, |x,y| x*y))),
+            (Value::NdArray(a), Value::Int(b))   => Ok(Value::nd_array(a.borrow().ewise_scalar(*b as f64, |x,y| x*y))),
+            (Value::Float(a), Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a, |x,y| x*y))),
+            (Value::Int(a),   Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a as f64, |x,y| x*y))),
             _ => Err(VmError::TypeError(format!("'*' between {} and {}", l.type_name(), r.type_name()))),
         }
     }
     fn op_div(&self, l: Value, r: Value) -> VmResult {
         match (&l, &r) {
             (Value::TypedArray(_), _) | (_, Value::TypedArray(_)) => typed_binop(&l, &r, |a,b| a/b, |a,b| a/b),
+            (Value::NdArray(a), Value::NdArray(b)) => Ok(Value::nd_array(a.borrow().ewise_op(&b.borrow(), |x,y| x/y).map_err(VmError::TypeError)?)),
+            (Value::NdArray(a), Value::Float(b)) => Ok(Value::nd_array(a.borrow().ewise_scalar(*b, |x,y| x/y))),
+            (Value::NdArray(a), Value::Int(b))   => Ok(Value::nd_array(a.borrow().ewise_scalar(*b as f64, |x,y| x/y))),
+            (Value::Float(a), Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a, |x,y| y/x))),
+            (Value::Int(a),   Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a as f64, |x,y| y/x))),
             _ => {
                 let b = r.as_float().ok_or_else(|| VmError::TypeError(format!("'/' on {}", r.type_name())))?;
                 if b == 0.0 { return Err(VmError::DivisionByZero); }
@@ -937,11 +1093,38 @@ impl Vm {
                 "len" => Ok(Value::Int(s.chars().count() as i64)),
                 _ => Err(VmError::UnknownField { type_name: "Str".into(), field: field.into() }),
             },
+            Value::NdArray(nd) => {
+                let n = nd.borrow();
+                match field {
+                    "shape"  => Ok(Value::array(n.shape.iter().map(|&x| Value::Int(x as i64)).collect())),
+                    "ndim"   => Ok(Value::Int(n.ndim() as i64)),
+                    "size"   => Ok(Value::Int(n.size() as i64)),
+                    "dtype"  => Ok(Value::str(n.data.dtype().name().to_string())),
+                    "T"      => Ok(Value::nd_array(n.transpose_axes(None).map_err(VmError::Generic)?)),
+                    "flat"   => {
+                        // Restituisce TypedArray 1D (view flat)
+                        let flat_nd = n.reshape(vec![n.size()]).map_err(VmError::Generic)?;
+                        Ok(Value::nd_array(flat_nd))
+                    }
+                    _ => Err(VmError::UnknownField { type_name: "NdArray".into(), field: field.into() }),
+                }
+            }
             _ => Err(VmError::UnknownField { type_name: obj.type_name().to_string(), field: field.to_string() }),
         }
     }
 
     fn eval_index(&self, obj: Value, idx: Value) -> VmResult {
+        // NdArray: m[i] restituisce la riga i (o scalare se 1D)
+        if let Value::NdArray(ref nd) = obj {
+            return match &idx {
+                Value::Int(i) => {
+                    let n = nd.borrow();
+                    let ui = if *i < 0 { (n.shape[0] as i64 + i) as usize } else { *i as usize };
+                    n.get_axis0(ui).map_err(VmError::Generic)
+                }
+                _ => Err(VmError::TypeError(format!("NdArray index must be Int, got {}", idx.type_name()))),
+            };
+        }
         match &obj {
             Value::Dict(d) => {
                 d.borrow().get(&idx).cloned()
@@ -1161,6 +1344,14 @@ impl Vm {
                         Op::MakeArray => { let c = ru16!() as usize; let s = self.stack.len()-c; let items: Vec<Value> = self.stack.drain(s..).collect(); ps!(Value::array(items)); }
                         Op::MakeDict  => { let c = ru16!() as usize; let s = self.stack.len()-c*2; let flat: Vec<Value> = self.stack.drain(s..).collect(); let pairs: Vec<(Value,Value)> = flat.chunks(2).map(|c| (c[0].clone(),c[1].clone())).collect(); ps!(Value::dict(pairs)); }
                         Op::GetIndex  => { let i = cp!(); let o = cp!(); ps!(self.eval_index(o,i)?); }
+                        Op::GetSlice  => {
+                            let flags = ru8!();
+                            let step  = if flags & 4 != 0 { Some(cp!()) } else { None };
+                            let end   = if flags & 2 != 0 { Some(cp!()) } else { None };
+                            let start = if flags & 1 != 0 { Some(cp!()) } else { None };
+                            let obj   = cp!();
+                            ps!(self.eval_slice(obj, start, end, step)?);
+                        }
                         Op::MakeSome  => { let v = cp!(); ps!(Value::Some_(Box::new(v))); }
                         Op::MakeOk    => { let v = cp!(); ps!(Value::Ok_(Box::new(v)));   }
                         Op::MakeErr   => { let v = cp!(); ps!(Value::Err_(Box::new(v)));  }

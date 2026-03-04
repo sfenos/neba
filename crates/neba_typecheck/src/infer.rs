@@ -14,6 +14,7 @@ pub fn infer_expr(expr: &Expr, env: &mut TypeEnv, errors: &mut Vec<TypeError>) -
         ExprKind::Bool(_)  => Type::Bool,
         ExprKind::Str(_) | ExprKind::FStr(_) => Type::Str,
         ExprKind::None     => Type::None,
+        ExprKind::Slice { .. } => Type::Unknown,
         ExprKind::Error    => Type::Unknown,
 
         // ── Identificatore ────────────────────────────────────────────────

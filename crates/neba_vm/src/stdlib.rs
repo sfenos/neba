@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use rustc_hash::FxHashMap;
-use crate::value::{Value, TypedArrayData, Dtype};
+use crate::value::{Value, TypedArrayData, Dtype, NdArray};
 pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     macro_rules! reg {
         ($name:expr, $fn:expr) => {
@@ -51,8 +51,26 @@ pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     reg!("sort",     neba_sort);
     reg!("reverse",  neba_reverse);
     reg!("join",     neba_join);
+    // ── String convenience globals (v0.2.25) ─────────────────────────────
+    reg!("upper",      str_upper);
+    reg!("lower",      str_lower);
+    reg!("strip",      str_strip);
+    reg!("lstrip",     str_lstrip);
+    reg!("rstrip",     str_rstrip);
+    reg!("split",      str_split);
+    reg!("replace",    str_replace);
+    reg!("find",       str_find);
+    reg!("startswith", str_startswith);
+    reg!("starts_with",str_startswith);  // alias
+    reg!("endswith",   str_endswith);
+    reg!("ends_with",  str_endswith);    // alias
+    reg!("capitalize", str_capitalize);
+    reg!("title",      str_title);
+    reg!("format",     neba_format);
+    reg!("zfill",      str_zfill);
     // ── TypedArray (v0.2.6) ───────────────────────────────────────────────
     register_typed_array_globals(globals);
+    register_nd_module(globals);
     // ── Stdlib modules (v0.2.11) ─────────────────────────────────────────
     globals.insert("math".to_string(),        (make_math_module(),        false));
     globals.insert("string".to_string(),      (make_string_module(),      false));
@@ -509,6 +527,46 @@ fn neba_reverse(args: &[Value]) -> Result<Value, String> {
 }
 
 /// join(array, separator) → Str
+/// format("{} {}", arg1, arg2) — sostituisce {} in ordine con gli argomenti
+fn neba_format(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Str(tmpl)) => {
+            // Controllo se è la vecchia sintassi {key}: dict come secondo arg
+            if args.len() == 2 {
+                if let Value::Dict(d) = &args[1] {
+                    let mut result = tmpl.as_ref().clone();
+                    for (k, v) in d.borrow().iter() {
+                        if let Value::Str(key) = k {
+                            result = result.replace(&format!("{{{}}}", key.as_str()), &v.to_string());
+                        }
+                    }
+                    return Ok(Value::str(result));
+                }
+            }
+            // Sintassi positionale: format("{} + {} = {}", 1, 2, 3)
+            let mut result = String::new();
+            let mut arg_idx = 1usize;
+            let mut chars = tmpl.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch == '{' {
+                    if chars.peek() == Some(&'}') {
+                        chars.next();
+                        let val = args.get(arg_idx).unwrap_or(&Value::None);
+                        result.push_str(&val.to_string());
+                        arg_idx += 1;
+                    } else {
+                        result.push(ch);
+                    }
+                } else {
+                    result.push(ch);
+                }
+            }
+            Ok(Value::str(result))
+        }
+        _ => Err("format(template, ...args) requires a Str template".into()),
+    }
+}
+
 fn neba_join(args: &[Value]) -> Result<Value, String> {
     match args {
         [Value::Array(arr), Value::Str(sep)] => {
@@ -622,6 +680,17 @@ fn ta_int32(args: &[Value]) -> Result<Value, String> {
 
 /// zeros(n) → Float64Array di zeri; zeros(n, "Int64") → Int64Array
 fn ta_zeros(args: &[Value]) -> Result<Value, String> {
+    // zeros(r, c, ...) → NdArray 2D/ND se ≥2 Int args
+    // zeros([r,c,...])  → NdArray via nd_zeros
+    // zeros(n)          → TypedArray 1D (backward compat)
+    let all_ints = !args.is_empty() && args.iter().all(|v| matches!(v, Value::Int(_)));
+    if args.len() >= 2 && all_ints {
+        let shape: Vec<usize> = args.iter().map(|v| if let Value::Int(n) = v { *n as usize } else { 1 }).collect();
+        return Ok(Value::nd_array(crate::value::NdArray::zeros(shape, crate::value::Dtype::Float64)));
+    }
+    if matches!(args.first(), Some(Value::Array(_))) {
+        return nd_zeros(args);
+    }
     let (n, dtype) = parse_size_dtype(args, "Float64")?;
     Ok(match dtype.as_str() {
         "Float64" => Value::typed_array(TypedArrayData::Float64(vec![0.0f64; n])),
@@ -632,8 +701,18 @@ fn ta_zeros(args: &[Value]) -> Result<Value, String> {
     })
 }
 
-/// ones(n) → Float64Array di uni; ones(n, "Int64") → Int64Array
+/// ones(n) → Float64Array; ones(r, c, ...) → NdArray di uni
 fn ta_ones(args: &[Value]) -> Result<Value, String> {
+    let all_ints = !args.is_empty() && args.iter().all(|v| matches!(v, Value::Int(_)));
+    if args.len() >= 2 && all_ints {
+        let shape: Vec<usize> = args.iter().map(|v| if let Value::Int(n) = v { *n as usize } else { 1 }).collect();
+        let mut nd = crate::value::NdArray::zeros(shape, crate::value::Dtype::Float64);
+        for i in 0..nd.size() { nd.data.set(i, Value::Float(1.0)).unwrap(); }
+        return Ok(Value::nd_array(nd));
+    }
+    if matches!(args.first(), Some(Value::Array(_))) {
+        return nd_ones(args);
+    }
     let (n, dtype) = parse_size_dtype(args, "Float64")?;
     Ok(match dtype.as_str() {
         "Float64" => Value::typed_array(TypedArrayData::Float64(vec![1.0f64; n])),
@@ -1047,8 +1126,10 @@ pub fn make_string_module() -> Value {
         entry("find",       str_find),
         entry("rfind",      str_rfind),
         entry("count",      str_count),
-        entry("startswith", str_startswith),
-        entry("endswith",   str_endswith),
+        entry("startswith",  str_startswith),
+        entry("starts_with", str_startswith),  // alias
+        entry("endswith",    str_endswith),
+        entry("ends_with",   str_endswith),    // alias
         entry("repeat",     str_repeat),
         entry("pad_left",   str_pad_left),
         entry("pad_right",  str_pad_right),
@@ -1994,4 +2075,557 @@ pub fn make_random_module() -> Value {
         entry("seed",    math_seed),
         entry("sample",  math_sample),
     ])
+}
+
+// ── NdArray stdlib (v0.2.25) ──────────────────────────────────────────────
+
+use crate::value::NdArray as Nd;
+
+fn parse_shape(v: &Value) -> Result<Vec<usize>, String> {
+    match v {
+        Value::Array(a) => {
+            a.borrow().iter().map(|x| match x {
+                Value::Int(n) if *n > 0 => Ok(*n as usize),
+                _ => Err(format!("shape elements must be positive Int, got {}", x)),
+            }).collect()
+        }
+        Value::Int(n) if *n > 0 => Ok(vec![*n as usize]),
+        _ => Err(format!("shape must be Int or [Int, ...], got {}", v)),
+    }
+}
+
+fn parse_dtype_opt(args: &[Value], idx: usize) -> Dtype {
+    if let Some(Value::Str(s)) = args.get(idx) {
+        match s.as_str() {
+            "Float32" => Dtype::Float32,
+            "Int64"   => Dtype::Int64,
+            "Int32"   => Dtype::Int32,
+            _         => Dtype::Float64,
+        }
+    } else { Dtype::Float64 }
+}
+
+// nd_zeros(shape, dtype?)
+fn nd_zeros(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() { return Err("nd.zeros(shape, dtype?) requires shape".into()); }
+    let shape = parse_shape(&args[0])?;
+    let dtype = parse_dtype_opt(args, 1);
+    Ok(Value::nd_array(Nd::zeros(shape, dtype)))
+}
+
+// nd_ones(shape, dtype?)
+fn nd_ones(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() { return Err("nd.ones(shape, dtype?) requires shape".into()); }
+    let shape = parse_shape(&args[0])?;
+    let dtype = parse_dtype_opt(args, 1);
+    let mut nd = Nd::zeros(shape, dtype);
+    for i in 0..nd.size() { nd.data.set(i, Value::Float(1.0)).unwrap(); }
+    Ok(Value::nd_array(nd))
+}
+
+// nd_full(shape, fill_value, dtype?)
+fn nd_full(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 { return Err("nd.full(shape, value, dtype?) requires 2 args".into()); }
+    let shape = parse_shape(&args[0])?;
+    let dtype = parse_dtype_opt(args, 2);
+    let fill = args[1].clone();
+    let mut nd = Nd::zeros(shape, dtype);
+    for i in 0..nd.size() { nd.data.set(i, fill.clone()).unwrap(); }
+    Ok(Value::nd_array(nd))
+}
+
+// nd_eye(n, dtype?)
+fn nd_eye(args: &[Value]) -> Result<Value, String> {
+    let n = match args.first() {
+        Some(Value::Int(n)) => *n as usize,
+        // nd.eye([3]) — compatibile con nd.zeros([3,3])
+        Some(Value::Array(a)) => match a.borrow().first() {
+            Some(Value::Int(n)) => *n as usize,
+            _ => return Err("nd.eye([n]) first element must be Int".into()),
+        },
+        _ => return Err("nd.eye(n) or nd.eye([n]) requires Int".into()),
+    };
+    let dtype = parse_dtype_opt(args, 1);
+    let mut nd = Nd::zeros(vec![n, n], dtype);
+    for i in 0..n { nd.data.set(i*n + i, Value::Float(1.0)).unwrap(); }
+    Ok(Value::nd_array(nd))
+}
+
+// nd_arange(start, stop, step?, dtype?)
+fn nd_arange(args: &[Value]) -> Result<Value, String> {
+    let (start, stop, step) = match args {
+        [Value::Float(s), Value::Float(e)] => (*s, *e, 1.0f64),
+        [Value::Int(s), Value::Int(e)] => (*s as f64, *e as f64, 1.0),
+        [Value::Float(s), Value::Float(e), Value::Float(st)] => (*s, *e, *st),
+        [Value::Int(s), Value::Int(e), Value::Int(st)] => (*s as f64, *e as f64, *st as f64),
+        [Value::Float(s), Value::Float(e), Value::Int(st)] => (*s, *e, *st as f64),
+        [Value::Int(s), Value::Int(e), Value::Float(st)] => (*s as f64, *e as f64, *st),
+        _ => return Err("nd.arange(start, stop[, step]) requires numeric args".into()),
+    };
+    if step == 0.0 { return Err("nd.arange: step cannot be zero".into()); }
+    let n = ((stop - start) / step).ceil().max(0.0) as usize;
+    let data: Vec<f64> = (0..n).map(|i| start + i as f64 * step).collect();
+    Ok(Value::nd_array(Nd { shape: vec![n], data: TypedArrayData::Float64(data) }))
+}
+
+// nd_linspace(start, stop, num)
+fn nd_linspace(args: &[Value]) -> Result<Value, String> {
+    let (start, stop, n) = match args {
+        [a, b, Value::Int(n)] => {
+            let s = a.as_float().ok_or("linspace: start must be numeric")?;
+            let e = b.as_float().ok_or("linspace: stop must be numeric")?;
+            (s, e, *n as usize)
+        }
+        _ => return Err("nd.linspace(start, stop, n) requires 3 args".into()),
+    };
+    if n == 0 { return Ok(Value::nd_array(Nd { shape: vec![0], data: TypedArrayData::Float64(vec![]) })); }
+    if n == 1 { return Ok(Value::nd_array(Nd { shape: vec![1], data: TypedArrayData::Float64(vec![start]) })); }
+    let data: Vec<f64> = (0..n).map(|i| start + (stop - start) * i as f64 / (n-1) as f64).collect();
+    Ok(Value::nd_array(Nd { shape: vec![n], data: TypedArrayData::Float64(data) }))
+}
+
+// nd_from_list(list) — converte Array annidata in NdArray 2D/3D
+fn nd_from_list(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Array(outer)) => {
+            let rows = outer.borrow();
+            if rows.is_empty() { return Ok(Value::nd_array(Nd::zeros(vec![0], Dtype::Float64))); }
+            // Guarda il primo elemento per determinare la struttura
+            match &rows[0] {
+                Value::Array(inner_0) => {
+                    let cols = inner_0.borrow().len();
+                    let m = rows.len();
+                    let mut data = Vec::with_capacity(m * cols);
+                    for row in rows.iter() {
+                        match row {
+                            Value::Array(r) => for v in r.borrow().iter() { data.push(v.as_float().unwrap_or(0.0)); },
+                            _ => return Err("nd.array: all rows must be arrays".into()),
+                        }
+                    }
+                    Ok(Value::nd_array(Nd { shape: vec![m, cols], data: TypedArrayData::Float64(data) }))
+                }
+                v if v.as_float().is_some() => {
+                    let data: Vec<f64> = rows.iter().map(|v| v.as_float().unwrap_or(0.0)).collect();
+                    Ok(Value::nd_array(Nd { shape: vec![rows.len()], data: TypedArrayData::Float64(data) }))
+                }
+                _ => Err("nd.array: unsupported structure".into()),
+            }
+        }
+        _ => Err("nd.array(list) requires an Array".into()),
+    }
+}
+
+fn require_nd<'a>(v: &'a Value, fn_name: &str) -> Result<std::cell::Ref<'a, Nd>, String> {
+    match v {
+        Value::NdArray(nd) => Ok(nd.borrow()),
+        _ => Err(format!("{}: expected NdArray, got {}", fn_name, v.type_name())),
+    }
+}
+
+// nd_shape(arr)
+fn nd_shape(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.shape")?;
+    Ok(Value::array(nd.shape.iter().map(|&s| Value::Int(s as i64)).collect()))
+}
+
+// nd_ndim(arr)
+fn nd_ndim(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.ndim")?;
+    Ok(Value::Int(nd.ndim() as i64))
+}
+
+// nd_size(arr)
+fn nd_size(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.size")?;
+    Ok(Value::Int(nd.size() as i64))
+}
+
+// nd_reshape(arr, shape)
+fn nd_reshape(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 { return Err("nd.reshape(arr, shape)".into()); }
+    let nd = require_nd(&args[0], "nd.reshape")?;
+    let new_shape = parse_shape(&args[1])?;
+    Ok(Value::nd_array(nd.reshape(new_shape)?))
+}
+
+// nd_transpose(arr, axes?)
+fn nd_transpose(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() { return Err("nd.transpose(arr)".into()); }
+    let nd = require_nd(&args[0], "nd.transpose")?;
+    let axes = if args.len() > 1 {
+        if let Some(Value::Array(a)) = args.get(1) {
+            Some(a.borrow().iter().map(|v| match v { Value::Int(n) => Ok(*n as usize), _ => Err("axes must be Int".to_string()) }).collect::<Result<Vec<_>,_>>()?)
+        } else { None }
+    } else { None };
+    Ok(Value::nd_array(nd.transpose_axes(axes)?))
+}
+
+// nd_matmul(a, b)
+fn nd_matmul(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 { return Err("nd.matmul(a, b)".into()); }
+    let a = require_nd(&args[0], "nd.matmul")?;
+    let b = require_nd(&args[1], "nd.matmul")?;
+    Ok(Value::nd_array(a.matmul(&b)?))
+}
+
+// nd_sum(arr, axis?)
+fn nd_sum(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() { return Err("nd.sum(arr, axis?)".into()); }
+    let nd = require_nd(&args[0], "nd.sum")?;
+    match args.get(1) {
+        Some(Value::Int(axis)) => Ok(Value::nd_array(nd.sum_axis(*axis as usize)?)),
+        _ => Ok(Value::Float(nd.sum_all())),
+    }
+}
+
+// nd_mean(arr, axis?)
+fn nd_mean(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() { return Err("nd.mean(arr, axis?)".into()); }
+    let nd = require_nd(&args[0], "nd.mean")?;
+    match args.get(1) {
+        Some(Value::Int(axis)) => {
+            let s = nd.sum_axis(*axis as usize)?;
+            let div = nd.shape[*axis as usize] as f64;
+            Ok(Value::nd_array(s.ewise_scalar(div, |a, b| a / b)))
+        }
+        _ => Ok(Value::Float(nd.mean_all())),
+    }
+}
+
+// nd_min/max/argmin/argmax
+fn nd_min(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.min")?;
+    Ok(Value::Float(nd.min_all()))
+}
+fn nd_max(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.max")?;
+    Ok(Value::Float(nd.max_all()))
+}
+fn nd_argmin(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.argmin")?;
+    Ok(Value::Int(nd.argmin() as i64))
+}
+fn nd_argmax(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.argmax")?;
+    Ok(Value::Int(nd.argmax() as i64))
+}
+
+// nd_std(arr, ddof?)
+fn nd_std(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.std")?;
+    let ddof = match args.get(1) { Some(Value::Int(n)) => *n as usize, _ => 0 };
+    Ok(Value::Float(nd.std_dev(ddof)))
+}
+
+// nd_var(arr, ddof?)
+fn nd_var(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.var")?;
+    let ddof = match args.get(1) { Some(Value::Int(n)) => *n as usize, _ => 0 };
+    let s = nd.std_dev(ddof);
+    Ok(Value::Float(s * s))
+}
+
+// nd_cumsum(arr)
+fn nd_cumsum(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.cumsum")?;
+    Ok(Value::nd_array(nd.cumsum()))
+}
+
+// nd_flatten(arr)
+fn nd_flatten(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.flatten")?;
+    Ok(Value::nd_array(nd.flatten()))
+}
+
+// nd_clip(arr, lo, hi)
+fn nd_clip(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 3 { return Err("nd.clip(arr, lo, hi)".into()); }
+    let nd = require_nd(&args[0], "nd.clip")?;
+    let lo = args[1].as_float().ok_or("nd.clip: lo must be numeric")?;
+    let hi = args[2].as_float().ok_or("nd.clip: hi must be numeric")?;
+    Ok(Value::nd_array(nd.clip(lo, hi)))
+}
+
+// nd_where(cond, a, b)
+fn nd_where(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 3 { return Err("nd.where(cond, a, b)".into()); }
+    let cond = require_nd(&args[0], "nd.where")?;
+    let a    = require_nd(&args[1], "nd.where")?;
+    let b    = require_nd(&args[2], "nd.where")?;
+    Ok(Value::nd_array(Nd::where_cond(&cond, &a, &b)?))
+}
+
+// nd_abs(arr)
+fn nd_abs_fn(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.abs")?;
+    Ok(Value::nd_array(nd.ewise_unary(f64::abs)))
+}
+
+// nd_sqrt(arr)
+fn nd_sqrt_fn(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.sqrt")?;
+    Ok(Value::nd_array(nd.ewise_unary(f64::sqrt)))
+}
+
+// nd_exp(arr)
+fn nd_exp_fn(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.exp")?;
+    Ok(Value::nd_array(nd.ewise_unary(f64::exp)))
+}
+
+// nd_log(arr)
+fn nd_log_fn(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.log")?;
+    Ok(Value::nd_array(nd.ewise_unary(f64::ln)))
+}
+
+// nd_add/sub/mul/div(a, b)
+fn nd_add(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 { return Err("nd.add(a, b)".into()); }
+    let a = require_nd(&args[0], "nd.add")?;
+    let b = require_nd(&args[1], "nd.add")?;
+    Ok(Value::nd_array(a.ewise_op(&b, |x, y| x + y)?))
+}
+fn nd_sub(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 { return Err("nd.sub(a, b)".into()); }
+    let a = require_nd(&args[0], "nd.sub")?;
+    let b = require_nd(&args[1], "nd.sub")?;
+    Ok(Value::nd_array(a.ewise_op(&b, |x, y| x - y)?))
+}
+fn nd_mul(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 { return Err("nd.mul(a, b)".into()); }
+    let a = require_nd(&args[0], "nd.mul")?;
+    let b = require_nd(&args[1], "nd.mul")?;
+    Ok(Value::nd_array(a.ewise_op(&b, |x, y| x * y)?))
+}
+fn nd_div(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 { return Err("nd.div(a, b)".into()); }
+    let a = require_nd(&args[0], "nd.div")?;
+    let b = require_nd(&args[1], "nd.div")?;
+    Ok(Value::nd_array(a.ewise_op(&b, |x, y| x / y)?))
+}
+
+// nd_dot(a, b) — matmul per 2D, dot product per 1D
+fn nd_dot(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 { return Err("nd.dot(a, b)".into()); }
+    let a = require_nd(&args[0], "nd.dot")?;
+    let b = require_nd(&args[1], "nd.dot")?;
+    if a.ndim() == 1 && b.ndim() == 1 {
+        if a.size() != b.size() { return Err(format!("nd.dot: size mismatch {} vs {}", a.size(), b.size())); }
+        let s: f64 = (0..a.size()).map(|i| a.data.get(i).unwrap().as_float().unwrap_or(0.0) * b.data.get(i).unwrap().as_float().unwrap_or(0.0)).sum();
+        return Ok(Value::Float(s));
+    }
+    Ok(Value::nd_array(a.matmul(&b)?))
+}
+
+// nd_hstack(list_of_arrays) — concatena orizzontalmente (colonne)
+fn nd_hstack(args: &[Value]) -> Result<Value, String> {
+    let arrays = match args.first() {
+        Some(Value::Array(a)) => a.borrow().clone(),
+        _ => return Err("nd.hstack([a, b, ...])".into()),
+    };
+    if arrays.is_empty() { return Err("nd.hstack: empty list".into()); }
+    let nds: Vec<_> = arrays.iter().map(|v| match v {
+        Value::NdArray(nd) => Ok(nd.borrow().clone()),
+        _ => Err(format!("nd.hstack: expected NdArray, got {}", v.type_name())),
+    }).collect::<Result<_,_>>()?;
+    let rows = nds[0].shape.get(0).copied().unwrap_or(1);
+    let total_cols: usize = nds.iter().map(|nd| nd.shape.get(1).copied().unwrap_or(nd.size())).sum();
+    let mut out = Nd::zeros(vec![rows, total_cols], Dtype::Float64);
+    let mut col_offset = 0;
+    for nd in &nds {
+        let cols = nd.shape.get(1).copied().unwrap_or(nd.size());
+        for r in 0..rows {
+            for c in 0..cols {
+                let v = nd.data.get(r * cols + c).unwrap();
+                out.data.set(r * total_cols + col_offset + c, v).unwrap();
+            }
+        }
+        col_offset += cols;
+    }
+    Ok(Value::nd_array(out))
+}
+
+// nd_vstack(list_of_arrays) — concatena verticalmente (righe)
+fn nd_vstack(args: &[Value]) -> Result<Value, String> {
+    let arrays = match args.first() {
+        Some(Value::Array(a)) => a.borrow().clone(),
+        _ => return Err("nd.vstack([a, b, ...])".into()),
+    };
+    if arrays.is_empty() { return Err("nd.vstack: empty list".into()); }
+    let nds: Vec<_> = arrays.iter().map(|v| match v {
+        Value::NdArray(nd) => Ok(nd.borrow().clone()),
+        _ => Err(format!("nd.vstack: expected NdArray, got {}", v.type_name())),
+    }).collect::<Result<_,_>>()?;
+    let cols = nds[0].shape.get(1).copied().unwrap_or(nds[0].size());
+    let total_rows: usize = nds.iter().map(|nd| nd.shape.get(0).copied().unwrap_or(1)).sum();
+    let mut out_data: Vec<f64> = Vec::with_capacity(total_rows * cols);
+    for nd in &nds {
+        for i in 0..nd.size() { out_data.push(nd.data.get(i).unwrap().as_float().unwrap_or(0.0)); }
+    }
+    Ok(Value::nd_array(Nd { shape: vec![total_rows, cols], data: TypedArrayData::Float64(out_data) }))
+}
+
+// nd_diag(v) — crea matrice diagonale da 1D, oppure estrae diagonale da 2D
+fn nd_diag(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.diag")?;
+    if nd.ndim() == 1 {
+        let n = nd.size();
+        let mut out = Nd::zeros(vec![n, n], Dtype::Float64);
+        for i in 0..n { out.data.set(i*n+i, nd.data.get(i).unwrap()).unwrap(); }
+        Ok(Value::nd_array(out))
+    } else if nd.ndim() == 2 {
+        let (rows, cols) = (nd.shape[0], nd.shape[1]);
+        let n = rows.min(cols);
+        let mut out = Nd::zeros(vec![n], Dtype::Float64);
+        for i in 0..n { out.data.set(i, nd.data.get(i*cols+i).unwrap()).unwrap(); }
+        Ok(Value::nd_array(out))
+    } else {
+        Err("nd.diag: requires 1D or 2D array".into())
+    }
+}
+
+// nd_norm(arr, ord?) — norma L2 di default
+fn nd_norm(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.norm")?;
+    let ord = match args.get(1) { Some(Value::Int(n)) => *n, _ => 2 };
+    match ord {
+        1 => Ok(Value::Float(nd.ewise_unary(f64::abs).sum_all())),
+        2 => {
+            let ss: f64 = (0..nd.size()).map(|i| { let x = nd.data.get(i).unwrap().as_float().unwrap_or(0.0); x*x }).sum();
+            Ok(Value::Float(ss.sqrt()))
+        }
+        _ => Err(format!("nd.norm: ord={} not supported (use 1 or 2)", ord)),
+    }
+}
+
+// nd_astype(arr, dtype_str)
+fn nd_astype(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 { return Err("nd.astype(arr, dtype)".into()); }
+    let nd_src = require_nd(&args[0], "nd.astype")?;
+    let dtype = match &args[1] {
+        Value::Str(s) => match s.as_str() {
+            "Float32" => Dtype::Float32,
+            "Int64"   => Dtype::Int64,
+            "Int32"   => Dtype::Int32,
+            _         => Dtype::Float64,
+        },
+        _ => return Err("nd.astype: dtype must be a string".into()),
+    };
+    let mut out = Nd::zeros(nd_src.shape.clone(), dtype);
+    for i in 0..nd_src.size() { out.data.set(i, nd_src.data.get(i).unwrap()).unwrap(); }
+    Ok(Value::nd_array(out))
+}
+
+// nd_get(arr, i, j, ...) — accesso multidimensionale
+fn nd_get(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() { return Err("nd.get(arr, indices) or nd.get(arr, i, j, ...)".into()); }
+    let nd = require_nd(&args[0], "nd.get")?;
+    // Accetta sia nd.get(arr, [i,j]) che nd.get(arr, i, j)
+    let indices: Vec<usize> = if args.len() == 2 {
+        if let Value::Array(a) = &args[1] {
+            a.borrow().iter().map(|v| match v {
+                Value::Int(n) => Ok(*n as usize),
+                _ => Err(format!("nd.get: indices must be Int, got {}", v.type_name())),
+            }).collect::<Result<_,_>>()?
+        } else {
+            match &args[1] {
+                Value::Int(n) => vec![*n as usize],
+                _ => return Err(format!("nd.get: index must be Int or Array, got {}", args[1].type_name())),
+            }
+        }
+    } else {
+        args[1..].iter().map(|v| match v {
+            Value::Int(n) => Ok(*n as usize),
+            _ => Err(format!("nd.get: indices must be Int, got {}", v.type_name())),
+        }).collect::<Result<_,_>>()?
+    };
+    nd.get_nd(&indices)
+}
+
+// nd_set(arr, [i,j,...], value) or nd_set(arr, i, j, ..., value) — scrittura multidimensionale
+fn nd_set(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 3 { return Err("nd.set(arr, [i,j], value) or nd.set(arr, i, j, ..., value)".into()); }
+    match &args[0] {
+        Value::NdArray(rc) => {
+            let mut nd = rc.borrow_mut();
+            let value = args.last().unwrap().clone();
+            // Accetta sia nd.set(arr, [i,j], val) che nd.set(arr, i, j, val)
+            let indices: Vec<usize> = if args.len() == 3 {
+                if let Value::Array(a) = &args[1] {
+                    a.borrow().iter().map(|v| match v {
+                        Value::Int(n) => Ok(*n as usize),
+                        _ => Err(format!("nd.set: indices must be Int")),
+                    }).collect::<Result<_,_>>()?
+                } else {
+                    match &args[1] {
+                        Value::Int(n) => vec![*n as usize],
+                        _ => return Err("nd.set: index must be Int or Array".into()),
+                    }
+                }
+            } else {
+                args[1..args.len()-1].iter().map(|v| match v {
+                    Value::Int(n) => Ok(*n as usize),
+                    _ => Err(format!("nd.set: indices must be Int")),
+                }).collect::<Result<_,_>>()?
+            };
+            nd.set_nd(&indices, value)?;
+            Ok(Value::None)
+        }
+        _ => Err("nd.set: first arg must be NdArray".into()),
+    }
+}
+
+/// Registra il modulo `nd` come Dict di funzioni NdArray.
+pub fn register_nd_module(globals: &mut rustc_hash::FxHashMap<String, (Value, bool)>) {
+    use indexmap::IndexMap;
+    fn entry(name: &str, f: fn(&[Value]) -> Result<Value, String>) -> (Value, Value) {
+        (Value::str(name), Value::native_fn(name, f))
+    }
+    let mut map: IndexMap<Value, Value> = IndexMap::new();
+    for (k, v) in [
+        entry("zeros",     nd_zeros),
+        entry("ones",      nd_ones),
+        entry("full",      nd_full),
+        entry("eye",       nd_eye),
+        entry("arange",    nd_arange),
+        entry("linspace",  nd_linspace),
+        entry("array",     nd_from_list),
+        entry("shape",     nd_shape),
+        entry("ndim",      nd_ndim),
+        entry("size",      nd_size),
+        entry("reshape",   nd_reshape),
+        entry("transpose", nd_transpose),
+        entry("T",         nd_transpose),
+        entry("matmul",    nd_matmul),
+        entry("dot",       nd_dot),
+        entry("sum",       nd_sum),
+        entry("mean",      nd_mean),
+        entry("min",       nd_min),
+        entry("max",       nd_max),
+        entry("argmin",    nd_argmin),
+        entry("argmax",    nd_argmax),
+        entry("std",       nd_std),
+        entry("var",       nd_var),
+        entry("cumsum",    nd_cumsum),
+        entry("flatten",   nd_flatten),
+        entry("clip",      nd_clip),
+        entry("where_",    nd_where),
+        entry("abs",       nd_abs_fn),
+        entry("sqrt",      nd_sqrt_fn),
+        entry("exp",       nd_exp_fn),
+        entry("log",       nd_log_fn),
+        entry("add",       nd_add),
+        entry("sub",       nd_sub),
+        entry("mul",       nd_mul),
+        entry("div",       nd_div),
+        entry("hstack",    nd_hstack),
+        entry("vstack",    nd_vstack),
+        entry("diag",      nd_diag),
+        entry("norm",      nd_norm),
+        entry("astype",    nd_astype),
+        entry("get",       nd_get),
+        entry("set",       nd_set),
+    ] { map.insert(k, v); }
+    globals.insert("nd".into(), (Value::dict_from_map(map), true));
 }
