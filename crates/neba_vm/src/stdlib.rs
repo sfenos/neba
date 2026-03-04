@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use crate::value::Value;
 
-pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
+pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     macro_rules! reg {
         ($name:expr, $fn:expr) => {
             globals.insert($name.to_string(), (Value::native_fn($name, $fn), false));
@@ -502,7 +503,7 @@ fn neba_join(args: &[Value]) -> Result<Value, String> {
 use crate::value::{TypedArrayData, Dtype};
 
 /// Registra le funzioni TypedArray nei globals (chiamata da register_globals)
-pub fn register_typed_array_globals(globals: &mut std::collections::HashMap<String, (Value, bool)>) {
+pub fn register_typed_array_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     macro_rules! reg {
         ($name:expr, $fn:expr) => {
             globals.insert($name.to_string(), (Value::native_fn($name, $fn), false));

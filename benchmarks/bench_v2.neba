@@ -1,0 +1,367 @@
+# ─────────────────────────────────────────────────────────────────
+# Neba — Benchmark Suite v2  (v0.2.21)
+#
+# Differenze da v1:
+#   - Tutti i benchmark wrapped in fn() → variabili locali (stack slot)
+#     Le variabili globali sono ~1.7× più lente delle locali (HashMap lookup
+#     vs stack index diretto) — questo è il comportamento atteso e comune
+#     in tutti gli interpreter (Python, Lua, Ruby).
+#   - Aggiunge benchmark per Dict O(1), stdlib v2, constant folding
+#   - Rimuove dipendenza da `collections.*` — ora sono globali diretti
+#
+# Esegui con:
+#   cargo run --release --bin neba -- benchmarks/bench_v2.neba
+# ─────────────────────────────────────────────────────────────────
+
+fn hdr(s)
+    println(f"\n── {s} ──")
+
+fn res(label, ms)
+    println(f"  {label}: {ms} ms")
+
+println("Neba Benchmark Suite v2")
+println("Versione: v0.2.21 — VM fast-path + FxHashMap + constant folding")
+println("═══════════════════════════════════════════════")
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE A — Benchmark classici (variabili locali = caso d'uso reale)
+# ─────────────────────────────────────────────────────────────────
+hdr("Sezione A: Benchmark classici (variabili locali)")
+
+# [A1] Integer arithmetic — 10M ops
+fn bench_a1()
+    var n = 0
+    var i = 0
+    while i < 10000000
+        n = n + i * 2 - i // 3 + i % 7
+        i += 1
+    return n
+
+println("\n[A1] Integer arithmetic (10M ops)")
+let a1_t0 = clock()
+bench_a1()
+let a1_t1 = clock()
+res("while + int ops (local vars)", (a1_t1 - a1_t0) * 1000.0)
+
+# [A2] Float arithmetic — 5M ops
+fn bench_a2()
+    var f = 0.0
+    var i = 0
+    while i < 5000000
+        f = f + 1.1 * 2.2 - 0.5
+        i += 1
+    return f
+
+println("\n[A2] Float arithmetic (5M ops)")
+let a2_t0 = clock()
+bench_a2()
+let a2_t1 = clock()
+res("while + float ops", (a2_t1 - a2_t0) * 1000.0)
+
+# [A3] For-range loop — 1M iters
+fn bench_a3()
+    var s = 0
+    for j in 0..1000000
+        s += j
+    return s
+
+println("\n[A3] For-range loop (1M iters)")
+let a3_t0 = clock()
+let a3_r = bench_a3()
+let a3_t1 = clock()
+res(f"for-range sum={a3_r}", (a3_t1 - a3_t0) * 1000.0)
+
+# [A4] Ricorsione — fib(35)
+fn fib(n)
+    if n <= 1
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+println("\n[A4] Recursion — fib(35)")
+let a4_t0 = clock()
+let a4_r = fib(35)
+let a4_t1 = clock()
+res(f"fib(35)={a4_r}", (a4_t1 - a4_t0) * 1000.0)
+
+# [A5] Closure — 500k chiamate
+fn make_counter(start)
+    var c = start
+    fn next()
+        c += 1
+        return c
+    return next
+
+println("\n[A5] Closure calls (500k)")
+let counter = make_counter(0)
+let a5_t0 = clock()
+var ci = 0
+while ci < 500000
+    counter()
+    ci += 1
+let a5_t1 = clock()
+res("closure call", (a5_t1 - a5_t0) * 1000.0)
+
+# [A6] Array push/pop — 100k
+fn bench_a6()
+    var arr = []
+    var i = 0
+    while i < 100000
+        push(arr, i)
+        i += 1
+    i = 0
+    while i < 100000
+        pop(arr)
+        i += 1
+
+println("\n[A6] Array push/pop (100k)")
+let a6_t0 = clock()
+bench_a6()
+let a6_t1 = clock()
+res("push + pop", (a6_t1 - a6_t0) * 1000.0)
+
+# [A7] String concat — 10k
+fn bench_a7()
+    var s = ""
+    var i = 0
+    while i < 10000
+        s = s + "x"
+        i += 1
+    return len(s)
+
+println("\n[A7] String concat (10k)")
+let a7_t0 = clock()
+let a7_r = bench_a7()
+let a7_t1 = clock()
+res(f"concat len={a7_r}", (a7_t1 - a7_t0) * 1000.0)
+
+# [A8] Higher-order fn — 1M chiamate
+fn applica(g, x)
+    return g(x)
+fn doppio(x)
+    return x * 2
+
+fn bench_a8()
+    var acc = 0
+    var i = 0
+    while i < 1000000
+        acc += applica(doppio, i)
+        i += 1
+    return acc
+
+println("\n[A8] Higher-order fn (1M)")
+let a8_t0 = clock()
+bench_a8()
+let a8_t1 = clock()
+res("HOF call", (a8_t1 - a8_t0) * 1000.0)
+
+# [A9] Classi — 100k istanziazioni + metodo
+class Vec2
+    x: Float = 0.0
+    y: Float = 0.0
+    fn __init__(self, x, y)
+        self.x = x
+        self.y = y
+    fn lunghezza(self)
+        return (self.x ** 2 + self.y ** 2) ** 0.5
+
+fn bench_a9()
+    var tot = 0.0
+    var i = 0
+    while i < 100000
+        let v = Vec2(float(i), float(i + 1))
+        tot += v.lunghezza()
+        i += 1
+    return tot
+
+println("\n[A9] Class instantiation + method (100k)")
+let a9_t0 = clock()
+bench_a9()
+let a9_t1 = clock()
+res("Vec2 ctor+method", (a9_t1 - a9_t0) * 1000.0)
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE B — TypedArray
+# ─────────────────────────────────────────────────────────────────
+hdr("Sezione B: TypedArray")
+
+println("\n[B1] TypedArray Float64 ones(1M) + sum")
+let b1_t0 = clock()
+let ta = ones(1000000)
+let ta_sum = sum(ta)
+let b1_t1 = clock()
+res(f"ones(1M)+sum={ta_sum}", (b1_t1 - b1_t0) * 1000.0)
+
+println("\n[B2] TypedArray dot product (100k × 100 iter)")
+let a_vec = ones(100000)
+let b_vec = fill(100000, 2.0)
+let b2_t0 = clock()
+var bi = 0
+while bi < 100
+    dot(a_vec, b_vec)
+    bi += 1
+let b2_t1 = clock()
+res("dot(100k)×100", (b2_t1 - b2_t0) * 1000.0)
+
+println("\n[B3] linspace(1M) + mean")
+let b3_t0 = clock()
+let ls = linspace(0.0, 1.0, 1000000)
+let ls_mean = mean(ls)
+let b3_t1 = clock()
+res(f"linspace+mean≈{ls_mean}", (b3_t1 - b3_t0) * 1000.0)
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE C — Stdlib math
+# ─────────────────────────────────────────────────────────────────
+hdr("Sezione C: Stdlib math")
+
+fn bench_c1()
+    var s = 0.0
+    var i = 0
+    while i < 500000
+        s += math.sin(float(i) * 0.001) + math.cos(float(i) * 0.001)
+        i += 1
+    return s
+
+println("\n[C1] math.sin + math.cos (500k)")
+let c1_t0 = clock()
+bench_c1()
+let c1_t1 = clock()
+res("sin+cos loop", (c1_t1 - c1_t0) * 1000.0)
+
+fn bench_c2()
+    var s = 0.0
+    var i = 1
+    while i <= 1000000
+        s += math.sqrt(float(i)) + math.log(float(i))
+        i += 1
+    return s
+
+println("\n[C2] math.sqrt + math.log (1M)")
+let c2_t0 = clock()
+bench_c2()
+let c2_t1 = clock()
+res("sqrt+log loop", (c2_t1 - c2_t0) * 1000.0)
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE D — Dict O(1) (v0.2.17)
+# ─────────────────────────────────────────────────────────────────
+hdr("Sezione D: Dict O(1)")
+
+fn bench_d1()
+    var d = {}
+    var i = 0
+    while i < 100000
+        d[i] = i * 2
+        i += 1
+    return d[50000]
+
+println("\n[D1] Dict insert 100k int keys + lookup")
+let d1_t0 = clock()
+let d1_r = bench_d1()
+let d1_t1 = clock()
+res(f"insert+lookup={d1_r}", (d1_t1 - d1_t0) * 1000.0)
+
+fn bench_d2()
+    var d = {}
+    var i = 0
+    while i < 50000
+        d[f"key_{i}"] = i
+        i += 1
+    var hits = 0
+    i = 0
+    while i < 50000
+        if has_key(d, f"key_{i}")
+            hits += 1
+        i += 1
+    return hits
+
+println("\n[D2] Dict 50k string keys + has_key")
+let d2_t0 = clock()
+let d2_r = bench_d2()
+let d2_t1 = clock()
+res(f"str keys hits={d2_r}", (d2_t1 - d2_t0) * 1000.0)
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE E — Constant folding (v0.2.20)
+# ─────────────────────────────────────────────────────────────────
+hdr("Sezione E: Constant folding")
+
+# Queste costanti devono essere foldato a compile-time
+let CF_A = 2 * 3 + 4 * 5        # → 26
+let CF_B = 1000 * 1000           # → 1000000
+let CF_C = 2 ** 16               # → 65536
+let CF_D = "hello" + " " + "world"  # → "hello world"
+
+fn bench_e1()
+    var s = 0
+    var i = 0
+    while i < 1000000
+        s += CF_A    # LoadGlobal — ma CF_A è già una costante
+        i += 1
+    return s
+
+println("\n[E1] Costanti foldate in loop (1M iters)")
+let e1_t0 = clock()
+let e1_r = bench_e1()
+let e1_t1 = clock()
+res(f"fold loop sum={e1_r}", (e1_t1 - e1_t0) * 1000.0)
+
+println(f"  CF_A={CF_A} CF_B={CF_B} CF_C={CF_C} CF_D={CF_D}")
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE F — HOF: map, filter, reduce
+# ─────────────────────────────────────────────────────────────────
+hdr("Sezione F: HOF")
+
+fn _dbl(x)
+    return x * 2
+fn _even(x)
+    return x % 2 == 0
+fn _add(acc, x)
+    return acc + x
+
+println("\n[F1] map double (100k)")
+let big_arr = range(100000)
+let f1_t0 = clock()
+let mapped = map(big_arr, _dbl)
+let f1_t1 = clock()
+res(f"map len={len(mapped)}", (f1_t1 - f1_t0) * 1000.0)
+
+println("\n[F2] filter evens (100k)")
+let f2_t0 = clock()
+let filtered = filter(big_arr, _even)
+let f2_t1 = clock()
+res(f"filter len={len(filtered)}", (f2_t1 - f2_t0) * 1000.0)
+
+println("\n[F3] reduce sum (100k)")
+let f3_t0 = clock()
+let reduced = reduce(big_arr, _add, 0)
+let f3_t1 = clock()
+res(f"reduce sum={reduced}", (f3_t1 - f3_t0) * 1000.0)
+
+# ─────────────────────────────────────────────────────────────────
+# SEZIONE G — String stdlib
+# ─────────────────────────────────────────────────────────────────
+hdr("Sezione G: String stdlib")
+
+fn bench_g1()
+    let s = "the quick brown fox jumps over the lazy dog"
+    var i = 0
+    while i < 50000
+        let parts = string.split(s)
+        let up = string.upper(s)
+        i += 1
+
+println("\n[G1] string.split + upper (50k)")
+let g1_t0 = clock()
+bench_g1()
+let g1_t1 = clock()
+res("split+upper 50k", (g1_t1 - g1_t0) * 1000.0)
+
+# ─────────────────────────────────────────────────────────────────
+# Sommario
+# ─────────────────────────────────────────────────────────────────
+println("\n═══════════════════════════════════════════════")
+println("Benchmark Suite v2 completata.")
+println("Salva l'output come benchmarks/results_v2_run.md")
+println("═══════════════════════════════════════════════")

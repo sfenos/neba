@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 use crate::chunk::{read_i16, read_u16, Chunk, FnProto};
@@ -121,7 +122,7 @@ struct CallFrame {
 pub struct Vm {
     stack:          Vec<Value>,
     frames:         Vec<CallFrame>,
-    globals:        HashMap<String, (Value, bool)>,
+    globals:        FxHashMap<String, (Value, bool)>,
     class_registry: HashMap<String, ClassInfo>,
     step_limit:     u64,
 }
@@ -131,7 +132,7 @@ impl Vm {
         let mut vm = Vm {
             stack:          Vec::with_capacity(256),
             frames:         Vec::with_capacity(32),
-            globals:        HashMap::new(),
+            globals:        FxHashMap::default(),
             class_registry: HashMap::new(),
             step_limit:     0,
         };
@@ -239,12 +240,80 @@ impl Vm {
                     self.globals.insert(name, (v, mutable));
                 }
 
-                Op::Add    => { let r = pop!(); let l = pop!(); push!(self.op_add(l, r)?); }
-                Op::Sub    => { let r = pop!(); let l = pop!(); push!(self.op_sub(l, r)?); }
-                Op::Mul    => { let r = pop!(); let l = pop!(); push!(self.op_mul(l, r)?); }
+                Op::Add    => {
+                    // Fast-path: Int + Int (caso comune, evita chiamata a fn)
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            let res = a.wrapping_add(*b);
+                            self.stack.truncate(top - 2);
+                            self.stack.push(Value::Int(res));
+                        } else {
+                            let r = pop!(); let l = pop!(); push!(self.op_add(l, r)?);
+                        }
+                    } else {
+                        let r = pop!(); let l = pop!(); push!(self.op_add(l, r)?);
+                    }
+                }
+                Op::Sub    => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            let res = a.wrapping_sub(*b);
+                            self.stack.truncate(top - 2);
+                            self.stack.push(Value::Int(res));
+                        } else {
+                            let r = pop!(); let l = pop!(); push!(self.op_sub(l, r)?);
+                        }
+                    } else {
+                        let r = pop!(); let l = pop!(); push!(self.op_sub(l, r)?);
+                    }
+                }
+                Op::Mul    => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            let res = a.wrapping_mul(*b);
+                            self.stack.truncate(top - 2);
+                            self.stack.push(Value::Int(res));
+                        } else {
+                            let r = pop!(); let l = pop!(); push!(self.op_mul(l, r)?);
+                        }
+                    } else {
+                        let r = pop!(); let l = pop!(); push!(self.op_mul(l, r)?);
+                    }
+                }
                 Op::Div    => { let r = pop!(); let l = pop!(); push!(self.op_div(l, r)?); }
-                Op::IntDiv => { let r = pop!(); let l = pop!(); push!(self.op_intdiv(l, r)?); }
-                Op::Mod    => { let r = pop!(); let l = pop!(); push!(self.op_mod(l, r)?); }
+                Op::IntDiv => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            if *b == 0 { return Err(VmError::DivisionByZero); }
+                            let res = a.wrapping_div(*b);
+                            self.stack.truncate(top - 2);
+                            self.stack.push(Value::Int(res));
+                        } else {
+                            let r = pop!(); let l = pop!(); push!(self.op_intdiv(l, r)?);
+                        }
+                    } else {
+                        let r = pop!(); let l = pop!(); push!(self.op_intdiv(l, r)?);
+                    }
+                }
+                Op::Mod    => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            if *b == 0 { return Err(VmError::DivisionByZero); }
+                            let res = a.wrapping_rem(*b);
+                            self.stack.truncate(top - 2);
+                            self.stack.push(Value::Int(res));
+                        } else {
+                            let r = pop!(); let l = pop!(); push!(self.op_mod(l, r)?);
+                        }
+                    } else {
+                        let r = pop!(); let l = pop!(); push!(self.op_mod(l, r)?);
+                    }
+                }
                 Op::Pow    => { let r = pop!(); let l = pop!(); push!(self.op_pow(l, r)?); }
                 Op::Neg    => {
                     let v = pop!();
