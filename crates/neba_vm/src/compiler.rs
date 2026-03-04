@@ -1514,19 +1514,28 @@ impl Compiler {
         self.compile_expr(condition)?;
         let else_patch = self.chunk.emit_jump(Op::JumpFalse, line);
         let mut end_patches = Vec::new();
+        // then branch — scoped so that inner `let`/`var` are properly popped
+        self.push_scope();
         for stmt in then_block { self.compile_stmt(stmt)?; }
+        self.pop_scope(line);
         end_patches.push(self.chunk.emit_jump(Op::Jump, line));
         self.chunk.patch_jump(else_patch);
+        // elif branches — each scoped
         for (cond, block) in elif_branches {
             let elif_line = cond.span.line as u32;
             self.compile_expr(cond)?;
             let elif_else = self.chunk.emit_jump(Op::JumpFalse, elif_line);
+            self.push_scope();
             for stmt in block { self.compile_stmt(stmt)?; }
+            self.pop_scope(elif_line);
             end_patches.push(self.chunk.emit_jump(Op::Jump, elif_line));
             self.chunk.patch_jump(elif_else);
         }
+        // else branch — scoped
         if let Some(b) = else_block {
+            self.push_scope();
             for stmt in b { self.compile_stmt(stmt)?; }
+            self.pop_scope(line);
         }
         for p in end_patches { self.chunk.patch_jump(p); }
         Ok(())

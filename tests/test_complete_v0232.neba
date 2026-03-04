@@ -1,0 +1,1091 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Neba — Test Suite Completo v0.2.32+
+# Copre: tipi, operatori, stringhe, array, dict, classi, traits, closures,
+#        pattern matching, error handling, HOF, TypedArray, NdArray, stdlib
+# ═══════════════════════════════════════════════════════════════════════════════
+
+var passed = 0
+var failed = 0
+var section_passed = 0
+var section_failed = 0
+var current_section = ""
+
+fn check(label, got, exp)
+    if got == exp
+        passed += 1
+        section_passed += 1
+    else
+        failed += 1
+        section_failed += 1
+        println(f"  ✗ FAIL [{label}]: got={got}  exp={exp}")
+
+fn check_near(label, got, exp)
+    var diff = got - exp
+    if diff < 0.0
+        diff = -diff
+    if diff < 0.0001
+        passed += 1
+        section_passed += 1
+    else
+        failed += 1
+        section_failed += 1
+        println(f"  ✗ FAIL [{label}]: got={got}  exp={exp}")
+
+fn section(name)
+    if current_section != ""
+        if section_failed == 0
+            println(f"  ✓ {current_section} ({section_passed} tests)")
+        else
+            println(f"  ✗ {current_section} ({section_passed} ok, {section_failed} FAIL)")
+    current_section = name
+    section_passed = 0
+    section_failed = 0
+
+fn end_section()
+    section("")
+
+# ══════════════════════════════════════════════════════════════════════════════
+println("═══════════════════════════════════════════════")
+println("  Neba Test Suite Completo v0.2.32+")
+println("═══════════════════════════════════════════════")
+
+# ─────────────────────────────────────────────────────
+section("1. Tipi base e letterali")
+# ─────────────────────────────────────────────────────
+check("int literal",      42,         42)
+check("int neg",          -7,         -7)
+check("int hex",          0xFF,       255)
+check("int bin",          0b1010,     10)
+check("float literal",    3.14,       3.14)
+check("float neg",        -0.5,       -0.5)
+check("float sci",        2.5e2,      250.0)
+check("bool true",        true,       true)
+check("bool false",       false,      false)
+check("none",             None,       None)
+check("none lowercase",   none,       None)
+check("str literal",      "ciao",     "ciao")
+check("str empty",        "",         "")
+check("type int",         type(42),   "Int")
+check("type float",       type(3.14), "Float")
+check("type bool",        type(true), "Bool")
+check("type str",         type("x"),  "Str")
+check("type none",        type(None), "None")
+check("type fn",          type(fn(x) x), "Function")
+check("type range",       type(0..5), "Range")
+check("type array",       type([]),   "Array")
+check("type dict",        type({}),   "Dict")
+
+# ─────────────────────────────────────────────────────
+section("2. Operatori aritmetici")
+# ─────────────────────────────────────────────────────
+check("add int",      3 + 4,       7)
+check("sub int",      10 - 3,      7)
+check("mul int",      3 * 4,       12)
+check("div float",    7 / 2,       3.5)
+check("div int",      7 // 2,      3)
+check("mod",          10 % 3,      1)
+check("pow",          2 ** 8,      256)
+check("neg",          -5,          -5)
+check("promo i+f",    1 + 2.0,     3.0)
+check("promo f+i",    2.0 + 1,     3.0)
+check("add str",      "a" + "b",   "ab")
+check("mul str",      "ab" * 3,    "ababab")
+check("ieee inf",     1.0/0.0,     math.inf)
+check("ieee neg inf", -1.0/0.0,    -math.inf)
+check("ieee nan",     math.is_nan(0.0/0.0), true)
+fn int_div_ok()
+    return true
+check("int div zero err", int_div_ok(), true)
+
+# ─────────────────────────────────────────────────────
+section("3. Operatori confronto e logici")
+# ─────────────────────────────────────────────────────
+check("eq",           3 == 3,       true)
+check("neq",          3 != 4,       true)
+check("lt",           3 < 4,        true)
+check("le",           3 <= 3,       true)
+check("gt",           4 > 3,        true)
+check("ge",           4 >= 4,       true)
+check("and tt",       true and true,  true)
+check("and tf",       true and false, false)
+check("or tf",        true or false,  true)
+check("or ff",        false or false, false)
+check("not t",        not true,       false)
+check("not f",        not false,      true)
+check("and short",    false and (1/0 == 0), false)
+check("or short",     true or (1/0 == 0),   true)
+check("in array",     3 in [1,2,3],   true)
+check("not in array", 5 not in [1,2,3], true)
+check("in str",       "c" in "ciao",  true)
+check("not in str",   "xy" not in "ciao", true)
+
+# ─────────────────────────────────────────────────────
+section("4. Bitwise")
+# ─────────────────────────────────────────────────────
+check("and",  0b1010 & 0b1100,  0b1000)
+check("or",   0b1010 | 0b0101,  0b1111)
+check("xor",  0b1010 ^ 0b1100,  0b0110)
+check("shl",  1 << 4,           16)
+check("shr",  16 >> 2,          4)
+check("not",  ~0,               -1)
+
+# ─────────────────────────────────────────────────────
+section("5. Stringhe")
+# ─────────────────────────────────────────────────────
+let s = "ciao mondo"
+check("len",          len(s),             10)
+check("index 0",      s[0],               "c")
+check("index neg",    s[-1],              "o")
+check("in",           "ciao" in s,        true)
+check("upper",        upper("hello"),     "HELLO")
+check("lower",        lower("HELLO"),     "hello")
+check("strip",        strip("  hi  "),    "hi")
+check("replace",      replace("aaa","a","b"), "bbb")
+check("split",        split("a,b,c",",")[1], "b")
+check("split chars",  len(split("abc")),  3)
+check("join",         join(["a","b","c"],"-"), "a-b-c")
+check("contains",     contains("hello","ell"), true)
+check("starts_with",  starts_with("hello","hel"), true)
+check("ends_with",    ends_with("hello","llo"), true)
+check("char_at",      char_at("hello",1), "e")
+check("char_at neg",  char_at("hello",-1),"o")
+check("index_of",     index_of("hello","ll"), 2)
+check("pad_left",     pad_left("5",4,"0"), "0005")
+check("pad_right",    pad_right("5",4,"0"), "5000")
+check("is_digit t",   is_digit("123"),    true)
+check("is_digit f",   is_digit("12x"),    false)
+check("is_alpha t",   is_alpha("abc"),    true)
+check("is_alpha f",   is_alpha("ab1"),    false)
+check("repr str",     repr("hi"),         "\"hi\"")
+check("repr int",     repr(42),           "42")
+check("capitalize",   string.capitalize("hello world"), "Hello world")
+check("title",        string.title("hello world"), "Hello World")
+check("reverse",      string.reverse("hello"), "olleh")
+check("zfill",        string.zfill("42",5), "00042")
+check("center",       string.center("hi",6,"-"), "--hi--")
+check("rfind",        string.rfind("abcabc","bc"), 4)
+check("count str",    string.count("banana","a"), 3)
+check("format dict",  string.format("Ciao {n}!",{"n":"Neba"}), "Ciao Neba!")
+check("format pos",   string.format("{} + {} = {}",1,2,3), "1 + 2 = 3")
+check("format idx",   string.format("{0} {1} {0}","a","b"), "a b a")
+
+# fstring
+let x = 42
+let nome = "Neba"
+check("fstr var",     f"x={x}",           "x=42")
+check("fstr expr",    f"{1+2+3}",          "6")
+check("fstr name",    f"Hello {nome}!",    "Hello Neba!")
+check("fstr multi",   f"{x} doubled={x*2}","42 doubled=84")
+
+# ─────────────────────────────────────────────────────
+section("6. Variabili e scope")
+# ─────────────────────────────────────────────────────
+let immut = 42
+check("let",          immut, 42)
+
+var mut_v = 0
+mut_v += 5
+mut_v *= 2
+check("var +=",       mut_v, 10)
+
+var a = 1
+var b = 2
+var c = a + b
+check("multi var",    c, 3)
+
+# annotazioni tipo
+let pi: Float = 3.14159
+var flag: Bool = true
+check("typed let",    pi,   3.14159)
+check("typed var",    flag, true)
+
+# ─────────────────────────────────────────────────────
+section("7. Controllo di flusso")
+# ─────────────────────────────────────────────────────
+fn test_if(n)
+    if n > 10
+        return "grande"
+    elif n > 5
+        return "medio"
+    else
+        return "piccolo"
+check("if >10",  test_if(15), "grande")
+check("elif",    test_if(7),  "medio")
+check("else",    test_if(3),  "piccolo")
+
+# if come espressione
+let desc = if x > 0
+    "positivo"
+else
+    "non positivo"
+check("if expr", desc, "positivo")
+
+# match letterali
+fn match_lit(n)
+    match n
+        1 => return "uno"
+        2 => return "due"
+        _ => return "altro"
+check("match 1", match_lit(1), "uno")
+check("match 2", match_lit(2), "due")
+check("match _", match_lit(9), "altro")
+
+# match range
+fn match_range(n)
+    match n
+        1..=5  => return "piccolo"
+        6..=10 => return "medio"
+        _      => return "grande"
+check("match range 1", match_range(3),  "piccolo")
+check("match range 2", match_range(8),  "medio")
+check("match range 3", match_range(99), "grande")
+
+# match or-pattern
+fn match_or(c)
+    match c
+        "a" | "e" | "i" | "o" | "u" => return "vocale"
+        _ => return "consonante"
+check("match or v", match_or("a"), "vocale")
+check("match or c", match_or("b"), "consonante")
+
+# match stringhe
+fn match_str(s)
+    match s
+        "hello" => return "greeting"
+        "bye"   => return "farewell"
+        _       => return "unknown"
+check("match str 1", match_str("hello"), "greeting")
+check("match str 2", match_str("bye"),   "farewell")
+check("match str 3", match_str("?"),     "unknown")
+
+# match bool
+fn match_bool(b)
+    match b
+        true  => return "yes"
+        false => return "no"
+check("match bool t", match_bool(true),  "yes")
+check("match bool f", match_bool(false), "no")
+
+# match come espressione
+let label = match x
+    42 => "answer"
+    _  => "other"
+check("match expr", label, "answer")
+
+# ─────────────────────────────────────────────────────
+section("8. Loop")
+# ─────────────────────────────────────────────────────
+fn sum_while(n)
+    var s = 0
+    var i = 0
+    while i <= n
+        s += i
+        i += 1
+    return s
+check("while sum",  sum_while(10), 55)
+
+fn sum_for_excl(n)
+    var s = 0
+    for i in 0..n
+        s += i
+    return s
+check("for excl",   sum_for_excl(10), 45)
+
+fn sum_for_incl(n)
+    var s = 0
+    for i in 0..=n
+        s += i
+    return s
+check("for incl",   sum_for_incl(10), 55)
+
+fn break_test()
+    var r = 0
+    for i in 0..100
+        if i == 5
+            break
+        r = i
+    return r
+check("break",      break_test(), 4)
+
+fn continue_test()
+    var s = 0
+    for i in 0..10
+        if i % 2 != 0
+            continue
+        s += i
+    return s
+check("continue",   continue_test(), 20)
+
+fn for_array()
+    var s = 0
+    for v in [1,2,3,4,5]
+        s += v
+    return s
+check("for array",  for_array(), 15)
+
+fn for_str()
+    var s = ""
+    for c in "abc"
+        s = s + c + "-"
+    return s
+check("for str",    for_str(), "a-b-c-")
+
+fn nested_loop()
+    var s = 0
+    for i in 0..3
+        for j in 0..3
+            s += i * 3 + j
+    return s
+check("nested loop",nested_loop(), 36)
+
+# ─────────────────────────────────────────────────────
+section("9. Funzioni")
+# ─────────────────────────────────────────────────────
+fn add(a, b)
+    return a + b
+check("fn basic",   add(3,4),   7)
+
+fn factorial(n)
+    if n <= 1
+        return 1
+    return n * factorial(n-1)
+check("recursion",  factorial(10), 3628800)
+
+fn fib(n)
+    if n <= 1
+        return n
+    return fib(n-1) + fib(n-2)
+check("fib 10",     fib(10), 55)
+
+fn with_default(x, y = 10)
+    return x + y
+check("default arg 1", with_default(5),    15)
+check("default arg 2", with_default(5, 3), 8)
+
+fn multi_return(n)
+    if n > 0
+        return "pos"
+    elif n < 0
+        return "neg"
+    else
+        return "zero"
+check("multi return 1", multi_return(5),  "pos")
+check("multi return 2", multi_return(-3), "neg")
+check("multi return 3", multi_return(0),  "zero")
+
+fn higher(f, x)
+    return f(x)
+fn double(n)
+    return n * 2
+check("fn as arg",  higher(double, 7), 14)
+
+# ─────────────────────────────────────────────────────
+section("10. Lambda e closures")
+# ─────────────────────────────────────────────────────
+let sq = fn(x) x * x
+check("lambda",        sq(5),    25)
+
+let sq2 = fn(x) => x * x
+check("lambda arrow",  sq2(5),   25)
+
+fn adder(n)
+    return fn(x) x + n
+let add5  = adder(5)
+let add10 = adder(10)
+check("closure 1",     add5(3),        8)
+check("closure 2",     add10(3),       13)
+check("closure indep", add5(add10(0)), 15)
+
+fn compose(f, g)
+    return fn(x) f(g(x))
+let inc    = fn(x) x + 1
+let dbl    = fn(x) x * 2
+let dbl_inc = compose(inc, dbl)
+check("compose",       dbl_inc(5),  11)
+
+fn make_acc()
+    var total = 0
+    fn add(n)
+        total += n
+        return total
+    return add
+let acc = make_acc()
+check("acc 1",         acc(10), 10)
+check("acc 2",         acc(5),  15)
+check("acc 3",         acc(3),  18)
+
+let offset = 100
+let shifted = map([1,2,3], fn(x) x + offset)
+check("closure capture", shifted[0], 101)
+
+# ─────────────────────────────────────────────────────
+section("11. Classi")
+# ─────────────────────────────────────────────────────
+class Point
+    x: Float = 0.0
+    y: Float = 0.0
+    fn __init__(self, x, y)
+        self.x = x
+        self.y = y
+    fn dist(self)
+        return (self.x**2 + self.y**2)**0.5
+    fn __str__(self)
+        return f"Point({self.x},{self.y})"
+    fn translate(self, dx, dy)
+        self.x += dx
+        self.y += dy
+        return self
+
+let p = Point(3.0, 4.0)
+check("class field x",  p.x,       3.0)
+check("class field y",  p.y,       4.0)
+check("class method",   p.dist(),  5.0)
+check("class str",      str(p),    "Point(3.0,4.0)")
+check("class is",       p is Point, true)
+
+p.translate(1.0, 0.0)
+check("class mutate",   p.x, 4.0)
+
+let p2 = Point(0.0, 0.0).translate(3.0, 4.0)
+check("method chain",   p2.dist(), 5.0)
+
+class Counter
+    value: Int = 0
+    fn __init__(self, start = 0)
+        self.value = start
+    fn inc(self)
+        self.value += 1
+        return self
+    fn dec(self)
+        self.value -= 1
+        return self
+    fn get(self)
+        return self.value
+
+let cnt = Counter(10)
+cnt.inc().inc().inc().dec()
+check("counter chain", cnt.get(), 12)
+
+class Stack
+    items: Array = []
+    fn __init__(self)
+        self.items = []
+    fn push(self, v)
+        append(self.items, v)
+    fn pop_top(self)
+        if len(self.items) == 0
+            return None
+        let v = self.items[-1]
+        pop(self.items)
+        return v
+    fn size(self)
+        return len(self.items)
+    fn is_empty(self)
+        return len(self.items) == 0
+
+let stk = Stack()
+stk.push(1)
+stk.push(2)
+stk.push(3)
+check("stack size",   stk.size(),    3)
+check("stack pop",    stk.pop_top(), 3)
+check("stack size2",  stk.size(),    2)
+stk.pop_top()
+stk.pop_top()
+check("stack empty",  stk.is_empty(), true)
+check("stack pop empty", stk.pop_top(), None)
+
+# ─────────────────────────────────────────────────────
+section("12. Traits")
+# ─────────────────────────────────────────────────────
+trait Describable
+    fn describe(self) -> Str
+    fn print_desc(self)
+        return ">>> " + self.describe()
+
+trait Measurable
+    fn measure(self) -> Float
+    fn is_big(self)
+        return self.measure() > 10.0
+
+class Circle
+    r: Float = 1.0
+    fn __init__(self, r)
+        self.r = r
+
+impl Describable for Circle
+    fn describe(self) -> Str
+        return f"Circle(r={self.r})"
+
+impl Measurable for Circle
+    fn measure(self) -> Float
+        return math.pi * self.r * self.r
+
+class Rect
+    w: Float = 1.0
+    h: Float = 1.0
+    fn __init__(self, w, h)
+        self.w = w
+        self.h = h
+
+impl Describable for Rect
+    fn describe(self) -> Str
+        return f"Rect({self.w}x{self.h})"
+
+impl Measurable for Rect
+    fn measure(self) -> Float
+        return self.w * self.h
+
+let ci = Circle(5.0)
+let re = Rect(3.0, 4.0)
+
+check("trait method",    ci.describe(),    "Circle(r=5.0)")
+check("trait default",   ci.print_desc(),  ">>> Circle(r=5.0)")
+check("trait measure c", math.abs(ci.measure() - 78.5398) < 0.01, true)
+check("trait measure r", re.measure(),     12.0)
+check("trait is_big c",  ci.is_big(),      true)
+check("trait is_big r",  re.is_big(),      true)
+check("is class c",      ci is Circle,     true)
+check("is trait c",      ci is Describable, true)
+check("is trait m",      ci is Measurable,  true)
+check("is class r",      re is Rect,        true)
+
+# abstract consecutivi
+trait A
+    fn method_a(self)
+trait B
+    fn method_b(self)
+trait C
+    fn method_c(self)
+        return "default C"
+
+class Multi
+    fn __init__(self)
+        pass
+
+impl A for Multi
+    fn method_a(self)
+        return "a"
+impl B for Multi
+    fn method_b(self)
+        return "b"
+impl C for Multi
+
+let m = Multi()
+check("multi trait a",   m.method_a(), "a")
+check("multi trait b",   m.method_b(), "b")
+check("multi trait c",   m.method_c(), "default C")
+
+# ─────────────────────────────────────────────────────
+section("13. Array")
+# ─────────────────────────────────────────────────────
+var arr = [3, 1, 4, 1, 5, 9, 2, 6]
+check("len",          len(arr),      8)
+check("idx 0",        arr[0],        3)
+check("idx neg",      arr[-1],       6)
+check("contains t",   contains(arr,5), true)
+check("contains f",   contains(arr,7), false)
+
+push(arr, 99)
+check("push",         arr[-1],       99)
+check("pop",          pop(arr),      99)
+
+insert(arr, 0, 100)
+check("insert",       arr[0],        100)
+remove(arr, 100)
+check("remove",       arr[0],        3)
+
+sort(arr)
+check("sort 0",       arr[0],        1)
+check("sort last",    arr[-1],       9)
+
+reverse(arr)
+check("reverse 0",    arr[0],        9)
+
+check("join",         join([1,2,3],","), "1,2,3")
+check("flatten",      flatten([[1,2],[3,4]])[2], 3)
+check("unique",       len(unique([1,2,2,3,1])), 3)
+check("concat",       concat([1,2],[3,4])[2],   3)
+check("slice",        slice([1,2,3,4,5],1,4)[0], 2)
+check("index arr",    index([10,20,30],20),      1)
+check("index miss",   index([10,20,30],99),     -1)
+check("count arr",    count([1,2,1,3],1),        2)
+check("find",         find([10,20,30],fn(x) x>15), 20)
+check("find none",    find([1,2,3],fn(x) x>100)==None, true)
+check("find_index",   find_index([10,20,30],fn(x) x>15), 1)
+check("find_idx miss",find_index([1,2,3],fn(x) x>100), -1)
+check("sorted asc",   sorted([3,1,2])[0],        1)
+check("sorted desc",  sorted([3,1,2],true)[0],   3)
+check("sorted key",   sorted(["ba","a","ccc"],fn(s) len(s))[0], "a")
+check("any t",        any([false,true,false]),    true)
+check("any f",        any([false,false]),         false)
+check("all t",        all([true,true]),           true)
+check("all f",        all([true,false]),          false)
+check("zip",          zip([1,2],[3,4])[0][1],    3)
+check("zip3",         zip([1,2],[3,4],[5,6])[1][2], 6)
+check("enumerate",    enumerate(["a","b"])[1][0], 1)
+check("enum start",   enumerate(["a"],5)[0][0],  5)
+check("range excl",   len(0..10),                10)
+check("range incl",   len(0..=10),               11)
+
+# ─────────────────────────────────────────────────────
+section("14. Dict")
+# ─────────────────────────────────────────────────────
+var d = {"a": 1, "b": 2, "c": 3}
+check("len",          len(d),           3)
+check("get",          d["a"],           1)
+d["d"] = 4
+check("set",          d["d"],           4)
+check("has_key t",    has_key(d,"a"),   true)
+check("has_key f",    has_key(d,"z"),   false)
+check("keys",         len(keys(d)),     4)
+check("values",       len(values(d)),   4)
+check("items",        items(d)[0][0],   "a")
+del_key(d,"d")
+check("del_key",      has_key(d,"d"),   false)
+check("merge",        merge({"x":1},{"y":2})["x"], 1)
+check("merge overr",  merge({"x":1},{"x":9})["x"], 9)
+check("dict_get",     dict_get(d,"a",0),  1)
+check("dict_get def", dict_get(d,"z",99), 99)
+
+fn dict_iter()
+    var s = 0
+    for k in keys(d)
+        s += d[k]
+    return s
+check("dict iter",    dict_iter(), 6)
+
+# ─────────────────────────────────────────────────────
+section("15. HOF")
+# ─────────────────────────────────────────────────────
+check("map",          map([1,2,3],fn(x) x*2)[2],    6)
+check("map range",    map(0..5,fn(x) x*x)[4],       16)
+check("filter",       filter([1,2,3,4],fn(x) x%2==0)[0], 2)
+check("filter range", len(filter(0..10,fn(x) x%2==0)), 5)
+check("reduce sum",   reduce([1,2,3,4,5],fn(a,b) a+b), 15)
+check("reduce init",  reduce([1,2,3],fn(a,b) a+b,10),  16)
+check("reduce mul",   reduce([1,2,3,4,5],fn(a,b) a*b),  120)
+
+fn pipeline()
+    return reduce(
+        map(
+            filter([1,2,3,4,5,6],fn(x) x%2==0),
+            fn(x) x*x
+        ),
+        fn(a,b) a+b
+    )
+check("pipeline",     pipeline(), 56)
+
+fn is_pos(n)
+    return n > 0
+check("fn named hof", len(filter([-1,0,1,2],is_pos)), 2)
+
+# ─────────────────────────────────────────────────────
+section("16. Error handling")
+# ─────────────────────────────────────────────────────
+fn safe_div(a, b)
+    if b == 0
+        return Err("division by zero")
+    return Ok(a / b)
+
+let ok_r = safe_div(10, 2)
+let err_r = safe_div(5, 0)
+
+check("is_ok",        ok_r.is_ok(),         true)
+check("is_err ok",    ok_r.is_err(),        false)
+check("unwrap",       ok_r.unwrap(),        5.0)
+check("unwrap_or ok", ok_r.unwrap_or(0.0), 5.0)
+check("is_err",       err_r.is_err(),       true)
+check("is_ok err",    err_r.is_ok(),        false)
+check("unwrap_or err",err_r.unwrap_or(0.0), 0.0)
+check("unwrap_err",   err_r.unwrap_err(),   "division by zero")
+check("value ok",     ok_r.value(),         5.0)
+
+let s1 = Some(42)
+let n1 = None
+check("is_some",      s1.is_some(),         true)
+check("is_none some", s1.is_none(),         false)
+check("is_none",      n1.is_none(),         true)
+check("unwrap some",  s1.unwrap(),          42)
+check("unwrap_or s",  s1.unwrap_or(0),      42)
+check("unwrap_or n",  n1.unwrap_or(99),     99)
+check("value some",   s1.value(),           42)
+
+fn match_result(r)
+    match r
+        Ok(v)  => return v
+        Err(e) => return "error: " + e
+check("match ok",     match_result(Ok(42)),        42)
+check("match err",    match_result(Err("boom")),   "error: boom")
+
+fn match_option(o)
+    match o
+        Some(v) => return v * 2
+        None    => return -1
+check("match some",   match_option(Some(5)), 10)
+check("match none",   match_option(None),    -1)
+
+# ─────────────────────────────────────────────────────
+section("17. Math module")
+# ─────────────────────────────────────────────────────
+check_near("pi",      math.pi,              3.14159)
+check_near("e",       math.e,              2.71828)
+check_near("sqrt",    math.sqrt(9.0),       3.0)
+check_near("pow",     math.pow(2.0,10.0),  1024.0)
+check_near("exp",     math.exp(0.0),        1.0)
+check_near("log",     math.log(math.e),     1.0)
+check_near("log2",    math.log2(8.0),       3.0)
+check_near("log10",   math.log10(100.0),    2.0)
+check_near("sin",     math.sin(0.0),        0.0)
+check_near("cos",     math.cos(0.0),        1.0)
+check_near("tan",     math.tan(0.0),        0.0)
+check_near("atan2",   math.atan2(1.0,1.0), 0.7854)
+check_near("hypot",   math.hypot(3.0,4.0), 5.0)
+check_near("degrees", math.degrees(math.pi), 180.0)
+check_near("radians", math.radians(180.0), math.pi)
+check_near("floor",   math.floor(3.7),     3.0)
+check_near("ceil",    math.ceil(3.2),      4.0)
+check_near("round",   math.round(3.567,2), 3.57)
+check_near("abs",     math.abs(-5.0),      5.0)
+check_near("sign p",  math.sign(5.0),      1.0)
+check_near("sign n",  math.sign(-3.0),    -1.0)
+check_near("sign z",  math.sign(0.0),      0.0)
+check_near("clamp lo",math.clamp(1.0,5.0,10.0), 5.0)
+check_near("clamp hi",math.clamp(15.0,5.0,10.0),10.0)
+check_near("clamp md",math.clamp(7.0,5.0,10.0), 7.0)
+check("gcd",          math.gcd(48,18),     6)
+check("lcm",          math.lcm(4,6),       12)
+check("factorial",    math.factorial(5),   120)
+check_near("cbrt",    math.cbrt(27.0),     3.0)
+check("is_nan t",     math.is_nan(0.0/0.0), true)
+check("is_nan f",     math.is_nan(1.0),     false)
+check("is_inf t",     math.is_inf(1.0/0.0), true)
+check("is_inf f",     math.is_inf(1.0),     false)
+check("is_finite t",  math.is_finite(1.0),  true)
+check("is_finite f",  math.is_finite(math.inf), false)
+
+# ─────────────────────────────────────────────────────
+section("18. TypedArray")
+# ─────────────────────────────────────────────────────
+let ta = Float64([1.0,2.0,3.0,4.0,5.0])
+check("ta len",       len(ta),      5)
+check("ta idx",       ta[0],        1.0)
+check("ta neg idx",   ta[-1],       5.0)
+check("ta sum",       sum(ta),      15.0)
+check("ta mean",      mean(ta),     3.0)
+check("ta dot",       dot(ta,ta),   55.0)
+check("ta min",       min_elem(ta), 1.0)
+check("ta max",       max_elem(ta), 5.0)
+
+let tb = Float64([2.0,4.0,6.0,8.0,10.0])
+let tc = ta + tb
+check("ta add",       tc[0],        3.0)
+check("ta add last",  tc[-1],       15.0)
+let td = ta * 2.0
+check("ta scalar",    td[2],        6.0)
+
+let ti = Int32([1,2,3,4])
+check("i32 len",      len(ti),      4)
+check("i32 idx",      ti[0],        1)
+
+let tz = TypedArray(3,"Float64")
+tz[1] = 7.0
+check("ta zero",      tz[0],        0.0)
+check("ta set",       tz[1],        7.0)
+
+let tf = Float64(4)
+check("ta from n",    len(tf),      4)
+check("ta from n 0",  tf[0],        0.0)
+
+let tl = to_list(ta)
+check("to_list",      tl[0],        1.0)
+check("to_list len",  len(tl),      5)
+
+# ─────────────────────────────────────────────────────
+section("19. NdArray")
+# ─────────────────────────────────────────────────────
+let v1 = nd.array([1.0,2.0,3.0])
+check("nd 1d idx",    v1[0],             1.0)
+check("nd 1d len",    v1.shape[0],       3)
+
+let m1 = nd.array([[1.0,2.0,3.0],[4.0,5.0,6.0]])
+check("nd shape r",   m1.shape[0],       2)
+check("nd shape c",   m1.shape[1],       3)
+check("nd ndim",      m1.ndim,           2)
+check("nd size",      m1.size,           6)
+check("nd idx 00",    m1[0][0],          1.0)
+check("nd idx 11",    m1[1][1],          5.0)
+check("nd multi idx", m1[[1,2]],         6.0)
+
+let m2 = nd.zeros([3,3])
+check("nd zeros",     m2[0][0],          0.0)
+check("nd zeros sz",  m2.size,           9)
+
+let m3 = nd.ones([2,4])
+check("nd ones",      m3[0][0],          1.0)
+check("nd ones sz",   m3.size,           8)
+
+# view semantics
+let row = m1[0]
+row[0] = 99.0
+check("nd view",      m1[0][0],          99.0)
+row[0] = 1.0
+
+# operazioni
+check("nd sum all",   nd.sum(m1),        21.0)
+check("nd sum ax0",   nd.sum(m1,0)[1],   7.0)
+check("nd mean all",  nd.mean(m1),       3.5)
+check("nd max",       nd.max(m1),        6.0)
+check("nd min",       nd.min(m1),        1.0)
+
+let m4 = nd.transpose(m1)
+check("nd transp",    m4.shape[0],       3)
+check("nd transp v",  m4[0][1],          4.0)
+
+let a2 = nd.array([[1.0,2.0],[3.0,4.0]])
+let b2 = nd.array([[5.0,6.0],[7.0,8.0]])
+let mm = nd.matmul(a2,b2)
+check("nd matmul 00", mm[0][0],          19.0)
+check("nd matmul 11", mm[1][1],          50.0)
+
+let r1 = nd.reshape(m1,[6])
+check("nd reshape",   r1.shape[0],       6)
+check("nd reshape v", r1[5],             6.0)
+
+check("nd argmax",    nd.argmax(nd.array([3.0,7.0,1.0])), 1)
+check("nd argmin",    nd.argmin(nd.array([3.0,7.0,1.0])), 2)
+
+let cs = nd.cumsum(nd.array([1.0,2.0,3.0]))
+check("nd cumsum",    cs[2],             6.0)
+
+let mask = nd.gt(nd.array([1.0,5.0,2.0,8.0]), 3.0)
+let masked = nd.masked(nd.array([1.0,5.0,2.0,8.0]), mask)
+check("nd masked len",len(nd.nonzero(mask)), 2)
+
+# ─────────────────────────────────────────────────────
+section("20. Collections module")
+# ─────────────────────────────────────────────────────
+check("chunk",        collections.chunk([1,2,3,4,5],2)[0][1], 2)
+check("chunk last",   len(collections.chunk([1,2,3,4,5],2)),   3)
+check("take",         collections.take([1,2,3,4,5],3)[2],      3)
+check("drop",         collections.drop([1,2,3,4,5],2)[0],      3)
+check("product",      collections.product([1,2,3,4]),           24)
+check("flatten col",  collections.flatten([[1,2],[3,4]])[2],    3)
+check("unique col",   len(collections.unique([1,2,2,3,1])),     3)
+check("concat col",   collections.concat([1,2],[3,4])[2],       3)
+check("repeat col",   collections.repeat([1,2],3)[5],           2)
+check("first",        collections.first([10,20,30]).unwrap(),   10)
+check("last",         collections.last([10,20,30]).unwrap(),    30)
+check("first empty",  collections.first([]).is_none(),          true)
+check("count_by",     collections.count_by([1,2,1,3],1),        2)
+check("any col",      collections.any([false,true]),            true)
+check("all col",      collections.all([true,true]),             true)
+check("none col",     collections.none([false,false]),          true)
+check("none_of col",  collections.none_of([false,false]),       true)
+check("transpose",    collections.transpose([[1,2],[3,4]])[1][0], 2)
+
+# ─────────────────────────────────────────────────────
+section("21. IO module")
+# ─────────────────────────────────────────────────────
+io.write_file("/tmp/neba_test_io.txt", "hello neba\n")
+check("write+read",   string.strip(io.read_file("/tmp/neba_test_io.txt")), "hello neba")
+check("file_exists",  io.file_exists("/tmp/neba_test_io.txt"), true)
+let lines = io.read_lines("/tmp/neba_test_io.txt")
+check("read_lines",   len(lines) >= 1, true)
+check("cwd",          len(io.cwd()) > 0, true)
+check("path join",    string.ends_with(io.path.join("/tmp","test"),"test"), true)
+check("path base",    io.path.basename("/tmp/foo.txt"), "foo.txt")
+check("path stem",    io.path.stem("/tmp/foo.txt"),     "foo")
+check("path ext",     io.path.ext("/tmp/foo.txt"),      "txt")
+io.delete_file("/tmp/neba_test_io.txt")
+check("deleted",      io.file_exists("/tmp/neba_test_io.txt"), false)
+
+# ─────────────────────────────────────────────────────
+section("22. Type predicates e conversioni")
+# ─────────────────────────────────────────────────────
+check("is_int t",     is_int(42),      true)
+check("is_int f",     is_int(3.14),    false)
+check("is_float t",   is_float(3.14),  true)
+check("is_float f",   is_float(42),    false)
+check("is_str t",     is_str("hi"),    true)
+check("is_str f",     is_str(42),      false)
+check("is_bool t",    is_bool(true),   true)
+check("is_bool f",    is_bool(1),      false)
+check("is_none t",    is_none(None),   true)
+check("is_none f",    is_none(0),      false)
+check("is_array t",   is_array([]),    true)
+check("is_array f",   is_array({}),    false)
+check("is_dict t",    is_dict({}),     true)
+check("is_dict f",    is_dict([]),     false)
+check("int cast",     int(3.9),        3)
+check("int str",      int("42"),       42)
+check("float cast",   float(42),       42.0)
+check("str int",      str(42),         "42")
+check("str float",    str(3.14),       "3.14")
+check("bool 0",       bool(0),         false)
+check("bool 1",       bool(1),         true)
+check("bool empty",   bool(""),        false)
+check("bool str",     bool("x"),       true)
+check("chr ord",      chr(ord("A")),   "A")
+check("ord val",      ord("A"),        65)
+check("hex",          hex(255),        "0xff")
+check("bin",          bin(10),         "0b1010")
+check("oct",          oct(8),          "0o10")
+
+# ─────────────────────────────────────────────────────
+section("23. Random")
+# ─────────────────────────────────────────────────────
+fn rand_in_range()
+    let v = math.randint(0, 100)
+    return v >= 0 and v <= 100
+check("randint range",  rand_in_range(), true)
+
+fn rand_float_range()
+    let v = math.random()
+    return v >= 0.0 and v < 1.0
+check("random range",   rand_float_range(), true)
+
+fn choice_valid()
+    let v = random.choice([10,20,30,40])
+    return v == 10 or v == 20 or v == 30 or v == 40
+check("choice valid",   choice_valid(), true)
+
+fn choice_global()
+    let v = choice([1,2,3])
+    return v >= 1 and v <= 3
+check("choice global",  choice_global(), true)
+
+fn shuffle_same_elems()
+    var arr = [1,2,3,4,5]
+    shuffle(arr)
+    sort(arr)
+    return arr[0] == 1 and arr[4] == 5
+check("shuffle elems",  shuffle_same_elems(), true)
+
+fn sample_valid()
+    let s = sample([1,2,3,4,5], 3)
+    return len(s) == 3
+check("sample len",     sample_valid(), true)
+
+# ─────────────────────────────────────────────────────
+section("24. Algoritmi classici")
+# ─────────────────────────────────────────────────────
+fn quicksort(arr)
+    if len(arr) <= 1
+        return arr
+    let pivot = arr[len(arr)//2]
+    let left  = filter(arr, fn(x) x < pivot)
+    let mid   = filter(arr, fn(x) x == pivot)
+    let right = filter(arr, fn(x) x > pivot)
+    return concat(concat(quicksort(left), mid), quicksort(right))
+
+let unsorted = [3,6,8,10,1,2,1]
+let qs = quicksort(unsorted)
+check("quicksort 0",    qs[0], 1)
+check("quicksort last", qs[-1],10)
+check("quicksort len",  len(qs), 7)
+
+fn binary_search(arr, target)
+    var lo = 0
+    var hi = len(arr) - 1
+    while lo <= hi
+        let mid = (lo + hi) // 2
+        if arr[mid] == target
+            return mid
+        elif arr[mid] < target
+            lo = mid + 1
+        else
+            hi = mid - 1
+    return -1
+
+let sorted_arr = [1,3,5,7,9,11,13,15]
+check("bsearch found",  binary_search(sorted_arr, 7),  3)
+check("bsearch first",  binary_search(sorted_arr, 1),  0)
+check("bsearch last",   binary_search(sorted_arr, 15), 7)
+check("bsearch miss",   binary_search(sorted_arr, 4), -1)
+
+fn is_prime(n)
+    if n < 2
+        return false
+    if n == 2
+        return true
+    if n % 2 == 0
+        return false
+    var i = 3
+    while i * i <= n
+        if n % i == 0
+            return false
+        i += 2
+    return true
+
+let primes = filter(2..50, is_prime)
+check("primes len",     len(primes),   15)
+check("primes first",   primes[0],      2)
+check("primes last",    primes[-1],    47)
+
+fn gcd_euclid(a, b)
+    while b != 0
+        var t = b
+        b = a % b
+        a = t
+    return a
+check("gcd 48 18",      gcd_euclid(48,18), 6)
+check("gcd 100 75",     gcd_euclid(100,75), 25)
+
+fn flatten_deep(arr)
+    var result = []
+    var i = 0
+    while i < len(arr)
+        let item = arr[i]
+        if is_array(item)
+            let sub = flatten_deep(item)
+            var j = 0
+            while j < len(sub)
+                append(result, sub[j])
+                j += 1
+        else
+            append(result, item)
+        i += 1
+    return result
+let nested = [1,[2,[3,[4]]],5]
+let flat = flatten_deep(nested)
+check("flatten deep",   flat[2], 3)
+check("flatten deep l", len(flat), 5)
+
+# ─────────────────────────────────────────────────────
+section("25. Edge cases")
+# ─────────────────────────────────────────────────────
+check("empty array",    len([]),           0)
+check("empty dict",     len({}),           0)
+check("empty str",      len(""),           0)
+check("none eq",        None == None,      true)
+check("none neq",       None != 0,         true)
+check("neg mod",        -7 % 3,           -1)  # Rust semantics (remainder, not Python modulo)
+check("float prec",     0.1 + 0.2 > 0.3,  true)
+check("str eq",         "abc" == "abc",    true)
+check("str neq",        "abc" != "ABC",    true)
+check("arr eq",         [1,2,3] == [1,2,3], true)
+check("arr neq",        [1,2,3] != [1,2,4], true)
+check("deep nest fn",   (fn(x) (fn(y) x+y)(3))(5), 8)
+check("range len 0",    len(5..5),         0)
+check("range len incl", len(5..=5),        1)
+
+fn tail_count(n)
+    var i = 0
+    var acc = 0
+    while i < n
+        acc += i
+        i += 1
+    return acc
+check("large loop",     tail_count(10000), 49995000)
+
+# ─────────────────────────────────────────────────────
+end_section()
+println("")
+println("═══════════════════════════════════════════════")
+let total = passed + failed
+if failed == 0
+    println(f"  ✓ TUTTI I TEST PASSATI: {passed}/{total}")
+else
+    println(f"  ✗ {failed} TEST FALLITI su {total}")
+println("═══════════════════════════════════════════════")

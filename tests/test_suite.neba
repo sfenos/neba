@@ -1,0 +1,1177 @@
+# ============================================================
+# Neba v0.2.33 — Test Suite Completo
+# ============================================================
+# Esegui con: ./target/release/neba tests/test_suite.neba
+# ============================================================
+
+var PASSED = 0
+var FAILED = 0
+var SECTION_FAILED = 0
+
+fn check(label, got, exp)
+    if got == exp
+        PASSED += 1
+    else
+        FAILED += 1
+        SECTION_FAILED += 1
+        println(f"  ✗ FAIL [{label}]")
+        println(f"      got: {got}")
+        println(f"      exp: {exp}")
+
+fn check_approx(label, got, exp, tol)
+    let diff = abs(got - exp)
+    if diff <= tol
+        PASSED += 1
+    else
+        FAILED += 1
+        SECTION_FAILED += 1
+        println(f"  ✗ FAIL [{label}]: got={got}  exp={exp}  diff={diff}  tol={tol}")
+
+fn section(name)
+    SECTION_FAILED = 0
+    println(f"\n━━━ {name} ━━━")
+
+fn section_end()
+    if SECTION_FAILED == 0
+        println("  ✓ tutti i test passati")
+
+println("╔══════════════════════════════════════════════════════╗")
+println("║     Neba v0.2.33 — Test Suite Completo              ║")
+println("╚══════════════════════════════════════════════════════╝")
+
+# ─────────────────────────────────────────────────────────────
+# 1. TIPI E LETTERALI
+# ─────────────────────────────────────────────────────────────
+section("1. Tipi e letterali")
+
+check("int literal", 42, 42)
+check("int negativo", -7, -7)
+check("int hex", 0xFF, 255)
+check("int bin", 0b1010, 10)
+check("float literal", 3.14, 3.14)
+check("float negativo", -0.5, -0.5)
+check("float sci", 2.5e2, 250.0)
+check("bool true", true, true)
+check("bool false", false, false)
+check("none", None, None)
+check("str literal", "ciao", "ciao")
+check("str vuota", "", "")
+check("type int", type(42), "Int")
+check("type float", type(3.14), "Float")
+check("type bool", type(true), "Bool")
+check("type str", type("x"), "Str")
+check("type none", type(None), "None")
+check("type array", type([1,2,3]), "Array")
+check("type dict", type({}), "Dict")
+check("type fn", type(fn(x) x), "Function")
+check("type range", type(0..5), "Range")
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 2. OPERATORI ARITMETICI
+# ─────────────────────────────────────────────────────────────
+section("2. Operatori aritmetici")
+
+check("add int", 3 + 4, 7)
+check("sub int", 10 - 3, 7)
+check("mul int", 3 * 4, 12)
+check("div float", 7 / 2, 3.5)
+check("int div", 7 // 2, 3)
+check("modulo", 10 % 3, 1)
+check("pow", 2 ** 10, 1024)
+check("neg", -5, -5)
+check("add float", 1.5 + 2.5, 4.0)
+check("int+float promo", 1 + 0.5, 1.5)
+check("float+int promo", 0.5 + 1, 1.5)
+check("int div neg", -7 // 2, -3)  # Neba: truncation (C-style)
+check("mod neg", -10 % 3, -1)  # Neba: C-style modulo
+fn test_add_eq()
+    var x = 5
+    x += 3
+    return x
+fn test_sub_eq()
+    var x = 5
+    x -= 3
+    return x
+fn test_mul_eq()
+    var x = 5
+    x *= 3
+    return x
+fn test_div_eq()
+    var x = 6.0
+    x /= 2.0
+    return x
+fn test_mod_eq()
+    var x = 10
+    x %= 3
+    return x
+
+check("compound +=", test_add_eq(), 8)
+check("compound -=", test_sub_eq(), 2)
+check("compound *=", test_mul_eq(), 15)
+check("compound /=", test_div_eq(), 3.0)
+check("compound %=", test_mod_eq(), 1)
+
+# IEEE 754
+check("float div by zero = Inf", math.is_inf(1.0 / 0.0), true)
+check("float neg div zero = -Inf", math.is_inf(-1.0 / 0.0), true)
+check("float 0/0 = NaN", math.is_nan(0.0 / 0.0), true)
+check("math.is_finite 1.0", math.is_finite(1.0), true)
+check("math.is_finite Inf", math.is_finite(1.0 / 0.0), false)
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 3. OPERATORI DI CONFRONTO E LOGICI
+# ─────────────────────────────────────────────────────────────
+section("3. Confronto e logica")
+
+check("eq int", 3 == 3, true)
+check("neq int", 3 != 4, true)
+check("lt", 3 < 4, true)
+check("le", 4 <= 4, true)
+check("gt", 5 > 3, true)
+check("ge", 5 >= 5, true)
+check("eq str", "ciao" == "ciao", true)
+check("neq str", "a" != "b", true)
+check("and tt", true and true, true)
+check("and tf", true and false, false)
+check("or ft", false or true, true)
+check("or ff", false or false, false)
+check("not true", not true, false)
+check("not false", not false, true)
+check("in array", 3 in [1,2,3], true)
+check("not in array", 5 not in [1,2,3], true)
+check("in str", "ia" in "ciao", true)
+check("not in str", "xx" not in "ciao", true)
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 4. VARIABILI E SCOPE
+# ─────────────────────────────────────────────────────────────
+section("4. Variabili e scope")
+
+let x = 42
+check("let immutable", x, 42)
+
+var y = 10
+y += 5
+check("var mutable", y, 15)
+
+let pi: Float = 3.14
+check("typed let", pi, 3.14)
+
+fn scope_test()
+    let inner = 99
+    return inner
+check("fn scope", scope_test(), 99)
+
+fn shadow_test()
+    let x = 100
+    return x
+check("shadow outer", shadow_test(), 100)
+check("outer unchanged", x, 42)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 5. STRINGHE
+# ─────────────────────────────────────────────────────────────
+section("5. Stringhe")
+
+check("len", len("ciao"), 4)
+check("concat", "ciao" + " " + "mondo", "ciao mondo")
+check("repeat", "ab" * 3, "ababab")
+check("index 0", "ciao"[0], "c")
+check("index -1", "ciao"[-1], "o")
+check("upper", upper("ciao"), "CIAO")
+check("lower", lower("CIAO"), "ciao")
+check("strip", strip("  ciao  "), "ciao")
+check("replace", replace("hello world", "world", "neba"), "hello neba")
+check("starts_with", starts_with("ciao", "cia"), true)
+check("ends_with", ends_with("ciao", "ao"), true)
+check("contains str", contains("ciao", "ia"), true)
+check("capitalize", capitalize("hello"), "Hello")
+check("zfill", zfill("42", 5), "00042")
+check("pad_left", pad_left("42", 5, "0"), "00042")
+check("pad_right", pad_right("42", 5, "-"), "42---")
+check("is_digit", is_digit("123"), true)
+check("is_digit false", is_digit("12a"), false)
+check("is_alpha", is_alpha("abc"), true)
+check("repr str", repr("hello"), "\"hello\"")
+check("repr int", repr(42), "42")
+check("char_at", char_at("hello", 1), "e")
+check("index_of", index_of("hello", "ll"), 2)
+
+# string module
+check("string.upper", string.upper("ciao"), "CIAO")
+check("string.lower", string.lower("CIAO"), "ciao")
+check("string.split sep", string.split("a,b,c", ","), ["a","b","c"])
+check("string.split chars", string.split("abc"), ["a","b","c"])
+check("string.split none", len(string.split("a b c", None)), 3)
+check("string.replace", string.replace("hello world", "world", "neba"), "hello neba")
+check("string.reverse", string.reverse("hello"), "olleh")
+check("string.char_at", string.char_at("hello", 0), "h")
+check("string.index_of", string.index_of("hello", "ll"), 2)
+check("string.pad_left", string.pad_left("7", 3, "0"), "007")
+check("string.zfill", string.zfill("42", 6), "000042")
+check("string.is_digit", string.is_digit("999"), true)
+check("string.is_alpha", string.is_alpha("abc"), true)
+check("string.starts_with", string.startswith("hello", "hel"), true)
+check("string.ends_with", string.endswith("hello", "llo"), true)
+check("string.repeat", string.repeat("ab", 3), "ababab")
+check("string.center", string.center("hi", 6, "-"), "--hi--")
+check("string.count", string.count("hello", "l"), 2)
+check("string.strip", string.strip("  hi  "), "hi")
+check("string.lines", len(string.lines("a\nb\nc")), 3)
+check("string.chars", string.chars("abc"), ["a","b","c"])
+
+# f-string
+let nome = "Neba"
+let n = 42
+check("fstring basic", f"Ciao {nome}!", "Ciao Neba!")
+check("fstring expr", f"2+2={2+2}", "2+2=4")
+check("fstring int", f"n={n}", "n=42")
+
+# string.format
+check("fmt positional", string.format("{} + {} = {}", 1, 2, 3), "1 + 2 = 3")
+check("fmt indexed", string.format("{0} {1} {0}", "a", "b"), "a b a")
+check("fmt dict", string.format("Ciao {nome}!", {"nome": "Neba"}), "Ciao Neba!")
+check("fmt no args", string.format("hello"), "hello")
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 6. CONTROLLO DI FLUSSO
+# ─────────────────────────────────────────────────────────────
+section("6. Controllo di flusso")
+
+fn if_basic(x)
+    if x > 10
+        return "grande"
+    elif x > 5
+        return "medio"
+    else
+        return "piccolo"
+
+check("if grande", if_basic(15), "grande")
+check("if medio", if_basic(7), "medio")
+check("if piccolo", if_basic(3), "piccolo")
+
+# if come espressione
+let label = if 5 > 3
+    "maggiore"
+else
+    "minore"
+check("if expr", label, "maggiore")
+
+# while
+fn while_test()
+    var i = 0
+    var s = 0
+    while i < 10
+        s += i
+        i += 1
+    return s
+check("while", while_test(), 45)
+
+# for range esclusivo
+fn for_excl()
+    var s = 0
+    for i in 0..5
+        s += i
+    return s
+check("for 0..5", for_excl(), 10)
+
+# for range inclusivo
+fn for_incl()
+    var s = 0
+    for i in 0..=5
+        s += i
+    return s
+check("for 0..=5", for_incl(), 15)
+
+# for array
+fn for_array()
+    var s = 0
+    for x in [1,2,3,4,5]
+        s += x
+    return s
+check("for array", for_array(), 15)
+
+# for stringa
+fn for_str()
+    var count = 0
+    for c in "hello"
+        count += 1
+    return count
+check("for string", for_str(), 5)
+
+# break
+fn break_test()
+    var i = 0
+    while true
+        if i >= 5
+            break
+        i += 1
+    return i
+check("break", break_test(), 5)
+
+# continue
+fn continue_test()
+    var s = 0
+    for i in 0..10
+        if i % 2 != 0
+            continue
+        s += i
+    return s
+check("continue", continue_test(), 20)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 7. FUNZIONI
+# ─────────────────────────────────────────────────────────────
+section("7. Funzioni")
+
+fn somma(a, b)
+    return a + b
+check("fn basic", somma(3, 4), 7)
+
+fn con_default(x, y = 10)
+    return x + y
+check("default arg usato", con_default(5), 15)
+check("default arg override", con_default(5, 20), 25)
+
+fn ricorsione(n)
+    if n <= 0
+        return 0
+    return n + ricorsione(n - 1)
+check("ricorsione", ricorsione(10), 55)
+
+fn multi_return(x)
+    if x > 0
+        return "pos"
+    elif x < 0
+        return "neg"
+    return "zero"
+check("multi return pos", multi_return(5), "pos")
+check("multi return neg", multi_return(-3), "neg")
+check("multi return zero", multi_return(0), "zero")
+
+fn fn_as_value(f, x)
+    return f(x)
+fn doppio(n)
+    return n * 2
+check("fn as value", fn_as_value(doppio, 7), 14)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 8. LAMBDA E CLOSURES
+# ─────────────────────────────────────────────────────────────
+section("8. Lambda e closures")
+
+let quadrato = fn(x) x * x
+check("lambda basic", quadrato(5), 25)
+
+let cubo = fn(x) => x * x * x
+check("lambda arrow", cubo(3), 27)
+
+# closure cattura variabile
+let offset = 10
+let add_offset = fn(x) x + offset
+check("closure cattura", add_offset(5), 15)
+
+# closure con stato (via classe o upvalue mutable)
+fn make_counter(start)
+    var c = start
+    fn next()
+        c += 1
+        return c
+    return next
+
+let cnt = make_counter(0)
+check("closure upvalue 1", cnt(), 1)
+check("closure upvalue 2", cnt(), 2)
+check("closure upvalue 3", cnt(), 3)
+
+# closure indipendenti
+let cnt2 = make_counter(100)
+check("closure indipendente", cnt2(), 101)
+check("cnt1 non influenzato", cnt(), 4)
+
+# lambda passata direttamente
+check("lambda inline map", map([1,2,3], fn(x) x*2), [2,4,6])
+check("lambda inline filter", filter([1,2,3,4,5], fn(x) x > 3), [4,5])
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 9. CLASSI
+# ─────────────────────────────────────────────────────────────
+section("9. Classi")
+
+class Punto
+    x: Float = 0.0
+    y: Float = 0.0
+    fn __init__(self, x, y)
+        self.x = x
+        self.y = y
+    fn distanza(self)
+        return math.sqrt(self.x*self.x + self.y*self.y)
+    fn __str__(self)
+        return f"Punto({self.x}, {self.y})"
+    fn trasla(self, dx, dy)
+        self.x += dx
+        self.y += dy
+        return self
+
+let p = Punto(3.0, 4.0)
+check("classe init", p.x, 3.0)
+check_approx("classe metodo", p.distanza(), 5.0, 0.0001)
+check("classe str", str(p), "Punto(3.0, 4.0)")
+check("is class", p is Punto, true)
+
+# method chaining
+p.trasla(1.0, 0.0)
+check("method chain campo", p.x, 4.0)
+
+# default fields
+class Defaults
+    a: Int = 42
+    b: Str = "hello"
+    fn __init__(self)
+        pass
+
+let d = Defaults()
+check("default field int", d.a, 42)
+check("default field str", d.b, "hello")
+
+# field assignment
+d.a = 99
+check("field assign", d.a, 99)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 10. TRAITS
+# ─────────────────────────────────────────────────────────────
+section("10. Traits")
+
+trait Stampabile
+    fn etichetta(self) -> Str
+
+    fn stampa(self)
+        println(f"  → {self.etichetta()}")
+
+trait Misurabile
+    fn misura(self) -> Float
+
+class Rettangolo
+    w: Float = 1.0
+    h: Float = 1.0
+    fn __init__(self, w, h)
+        self.w = w
+        self.h = h
+
+impl Stampabile for Rettangolo
+    fn etichetta(self)
+        return f"Rettangolo {self.w}×{self.h}"
+
+impl Misurabile for Rettangolo
+    fn misura(self)
+        return self.w * self.h
+
+class Cerchio
+    r: Float = 1.0
+    fn __init__(self, r)
+        self.r = r
+
+impl Stampabile for Cerchio
+    fn etichetta(self)
+        return f"Cerchio r={self.r}"
+
+impl Misurabile for Cerchio
+    fn misura(self)
+        return math.pi * self.r * self.r
+
+let rect = Rettangolo(3.0, 4.0)
+let circ = Cerchio(5.0)
+
+check("trait method rect", rect.etichetta(), "Rettangolo 3.0×4.0")
+check("trait method circ", circ.etichetta(), "Cerchio r=5.0")
+check("trait measure rect", rect.misura(), 12.0)
+check_approx("trait measure circ", circ.misura(), 78.53981633974483, 0.0001)
+check("is trait rect", rect is Stampabile, true)
+check("is trait circ", circ is Misurabile, true)
+check("is class rect", rect is Rettangolo, true)
+
+# default method
+trait Greeting
+    fn nome(self) -> Str
+    fn saluta(self)
+        return f"Ciao, sono {self.nome()}"
+
+class Persona
+    n: Str = ""
+    fn __init__(self, n)
+        self.n = n
+
+impl Greeting for Persona
+    fn nome(self)
+        return self.n
+
+let mario = Persona("Mario")
+check("trait default method", mario.saluta(), "Ciao, sono Mario")
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 11. ARRAY — FUNZIONI COMPLETE
+# ─────────────────────────────────────────────────────────────
+section("11. Array — funzioni complete")
+
+let arr = [3, 1, 4, 1, 5, 9, 2, 6]
+
+check("len array", len(arr), 8)
+check("index 0", arr[0], 3)
+check("index -1", arr[-1], 6)
+
+# push/pop
+var a = [1, 2, 3]
+push(a, 4)
+check("push", a, [1,2,3,4])
+let popped = pop(a)
+check("pop val", popped, 4)
+check("pop array", a, [1,2,3])
+
+# insert/remove
+insert(a, 1, 99)
+check("insert", a, [1,99,2,3])
+remove(a, 99)
+check("remove", a, [1,2,3])
+
+# sort/reverse
+var b = [3,1,2]
+sort(b)
+check("sort", b, [1,2,3])
+reverse(b)
+check("reverse", b, [3,2,1])
+
+# join
+check("join", join([1,2,3], "-"), "1-2-3")
+check("join default", join(["a","b","c"], ""), "abc")
+
+# range
+check("range 1 arg", range(5), [0,1,2,3,4])
+check("range 2 args", range(2,6), [2,3,4,5])
+check("range step", range(0,10,2), [0,2,4,6,8])
+
+# zip
+check("zip 2", zip([1,2],[3,4]), [[1,3],[2,4]])
+check("zip 3", zip([1,2],[3,4],[5,6]), [[1,3,5],[2,4,6]])
+check("zip trunc", zip([1,2,3],[4,5]), [[1,4],[2,5]])
+
+# enumerate
+check("enumerate default", enumerate(["a","b"])[0], [0,"a"])
+check("enumerate start", enumerate(["a","b"], 1)[0], [1,"a"])
+check("enumerate start idx", enumerate(["a","b"], 5)[1][0], 6)
+
+# any/all
+check("any true", any([false, true, false]), true)
+check("any false", any([false, false]), false)
+check("all true", all([true, true, true]), true)
+check("all false", all([true, false, true]), false)
+
+# flatten/unique/concat
+check("flatten", flatten([[1,2],[3,4]]), [1,2,3,4])
+check("unique", unique([1,2,2,3,1]), [1,2,3])
+check("concat", concat([1,2],[3,4]), [1,2,3,4])
+
+# slice/index/count
+check("slice", slice([1,2,3,4,5], 1, 4), [2,3,4])
+check("index found", index([10,20,30], 20), 1)
+check("index missing", index([10,20,30], 99), -1)
+check("count", count([1,2,1,3,1], 1), 3)
+
+# sorted
+check("sorted asc", sorted([3,1,2]), [1,2,3])
+check("sorted desc", sorted([3,1,2], true), [3,2,1])
+check("sorted key", sorted(["banana","apple","date"], fn(s) len(s)), ["date","apple","banana"])
+check("sorted cmp", sorted([3,1,2], fn(a,b) a-b), [1,2,3])
+
+# find/find_index
+check("find found", find([10,20,30], fn(x) x > 15), 20)
+check("find missing", find([1,2,3], fn(x) x > 100), None)
+check("find_index found", find_index([10,20,30], fn(x) x > 15), 1)
+check("find_index missing", find_index([1,2,3], fn(x) x > 100), -1)
+
+# contains
+check("contains true", contains([1,2,3], 2), true)
+check("contains false", contains([1,2,3], 9), false)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 12. DICT — FUNZIONI COMPLETE
+# ─────────────────────────────────────────────────────────────
+section("12. Dict — funzioni complete")
+
+var d = {"a": 1, "b": 2, "c": 3}
+
+check("dict len", len(d), 3)
+check("dict get", d["a"], 1)
+check("dict keys", keys(d), ["a","b","c"])
+check("dict values", values(d), [1,2,3])
+check("dict items len", len(items(d)), 3)
+check("has_key true", has_key(d, "b"), true)
+check("has_key false", has_key(d, "z"), false)
+
+d["d"] = 4
+check("dict set new", d["d"], 4)
+d["a"] = 99
+check("dict set existing", d["a"], 99)
+
+del_key(d, "d")
+check("del_key", has_key(d, "d"), false)
+
+check("merge", merge({"a":1}, {"b":2}), {"a":1,"b":2})
+check("merge override", merge({"a":1}, {"a":2})["a"], 2)
+check("dict_get found", dict_get(d, "a"), 99)
+check("dict_get missing default", dict_get(d, "z", 0), 0)
+check("dict_get missing none", dict_get(d, "z"), None)
+
+# for su dict
+var key_sum = 0
+for k in keys({"x":10,"y":20})
+    key_sum += 1
+check("for dict keys", key_sum, 2)
+
+# ordine di inserimento
+var od = {}
+od["primo"] = 1
+od["secondo"] = 2
+od["terzo"] = 3
+check("dict ordine", keys(od), ["primo","secondo","terzo"])
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 13. HOF — MAP / FILTER / REDUCE / FIND
+# ─────────────────────────────────────────────────────────────
+section("13. HOF")
+
+check("map basic", map([1,2,3], fn(x) x*2), [2,4,6])
+check("map range", map(0..4, fn(x) x*x), [0,1,4,9])
+check("filter basic", filter([1,2,3,4,5], fn(x) x%2==0), [2,4])
+check("filter range", filter(0..10, fn(x) x%3==0), [0,3,6,9])
+check("reduce sum", reduce([1,2,3,4,5], fn(a,x) a+x), 15)
+check("reduce prod", reduce([1,2,3,4], fn(a,x) a*x), 24)
+check("reduce init", reduce([1,2,3], fn(a,x) a+x, 10), 16)
+check("find found", find([5,10,15,20], fn(x) x>12), 15)
+check("find none", find([1,2,3], fn(x) x>100), None)
+check("find_index", find_index([5,10,15,20], fn(x) x>12), 2)
+check("find_index none", find_index([1,2,3], fn(x) x>100), -1)
+
+# pipeline
+let pipeline_result = reduce(
+    map(
+        filter([1,2,3,4,5,6], fn(x) x%2==0),
+        fn(x) x*x
+    ),
+    fn(a,x) a+x
+)
+check("hof pipeline", pipeline_result, 56)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 14. PATTERN MATCHING
+# ─────────────────────────────────────────────────────────────
+section("14. Pattern matching")
+
+fn match_int(n)
+    return match n
+        1 => "uno"
+        2 => "due"
+        3 => "tre"
+        _ => "altro"
+
+check("match lit 1", match_int(1), "uno")
+check("match lit 2", match_int(2), "due")
+check("match wildcard", match_int(99), "altro")
+
+fn match_range(n)
+    return match n
+        1..=5  => "piccolo"
+        6..=10 => "medio"
+        _      => "grande"
+
+check("match range 3", match_range(3), "piccolo")
+check("match range 8", match_range(8), "medio")
+check("match range 50", match_range(50), "grande")
+
+fn match_or(c)
+    return match c
+        "a" | "e" | "i" | "o" | "u" => "vocale"
+        _ => "consonante"
+
+check("match or vocale", match_or("a"), "vocale")
+check("match or cons", match_or("b"), "consonante")
+
+fn match_option(opt)
+    return match opt
+        Some(v) => v * 2
+        None    => -1
+
+check("match Some", match_option(Some(5)), 10)
+check("match None", match_option(None), -1)
+
+fn match_result(r)
+    return match r
+        Ok(v)  => v
+        Err(e) => e
+
+check("match Ok", match_result(Ok(42)), 42)
+check("match Err", match_result(Err("fail")), "fail")
+
+fn match_bool(b)
+    return match b
+        true  => "sì"
+        false => "no"
+
+check("match bool true", match_bool(true), "sì")
+check("match bool false", match_bool(false), "no")
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 15. ERROR HANDLING
+# ─────────────────────────────────────────────────────────────
+section("15. Error handling")
+
+fn dividi(a, b)
+    if b == 0
+        return Err("div/0")
+    return Ok(a / b)
+
+let r_ok  = dividi(10.0, 2.0)
+let r_err = dividi(1.0, 0)
+
+check("is_ok true", r_ok.is_ok(), true)
+check("is_ok false", r_err.is_ok(), false)
+check("is_err true", r_err.is_err(), true)
+check("is_err false", r_ok.is_err(), false)
+check("unwrap", r_ok.unwrap(), 5.0)
+check("unwrap_or ok", r_ok.unwrap_or(0.0), 5.0)
+check("unwrap_or err", r_err.unwrap_or(-1.0), -1.0)
+check("unwrap_err", r_err.unwrap_err(), "div/0")
+check("value ok", r_ok.value(), 5.0)
+
+# Option
+let s = Some(42)
+let n = None
+
+check("is_some", s.is_some(), true)
+check("is_none none", n.is_none(), true)
+check("is_some none", n.is_some(), false)
+check("unwrap_or some", s.unwrap_or(0), 42)
+check("unwrap_or none", n.unwrap_or(99), 99)
+check("value some", s.value(), 42)
+
+# operatore ?
+fn pipeline(x)
+    fn step1(n)
+        if n < 0
+            return Err("neg")
+        return Ok(n * 2)
+    fn step2(n)
+        if n > 100
+            return Err("big")
+        return Ok(n + 1)
+    let a = step1(x)?
+    let b = step2(a)?
+    return Ok(b)
+
+check("? ok", pipeline(10).is_ok(), true)
+check("? ok val", pipeline(10).unwrap(), 21)
+check("? err step1", pipeline(-1).is_err(), true)
+check("? err step2", pipeline(60).is_err(), true)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 16. TYPEDARRAY
+# ─────────────────────────────────────────────────────────────
+section("16. TypedArray")
+
+let fa = Float64([1.0, 2.0, 3.0, 4.0, 5.0])
+let ia = Int64([1, 2, 3, 4, 5])
+let z  = zeros(5)
+let o  = ones(5)
+
+check("Float64 len", len(fa), 5)
+check("Float64 idx", fa[0], 1.0)
+check("Float64 idx -1", fa[-1], 5.0)
+check("zeros", z[0], 0.0)
+check("ones", o[0], 1.0)
+check("fill", fill(3, 7.0)[1], 7.0)
+check("linspace len", len(linspace(0.0, 1.0, 11)), 11)
+check("linspace 0", linspace(0.0, 1.0, 11)[0], 0.0)
+check("linspace 1", linspace(0.0, 1.0, 11)[10], 1.0)
+
+check("sum", sum(fa), 15.0)
+check_approx("mean", mean(fa), 3.0, 0.0001)
+check("min_elem", min_elem(fa), 1.0)
+check("max_elem", max_elem(fa), 5.0)
+check("dot", dot(ones(4), fill(4, 2.0)), 8.0)
+check("to_list", to_list(Float64([1.0,2.0])), [1.0,2.0])
+
+# aritmetica element-wise
+let a2 = Float64([1.0,2.0,3.0])
+let b2 = Float64([4.0,5.0,6.0])
+check("ta add", to_list(a2 + b2), [5.0,7.0,9.0])
+check("ta mul scalar", to_list(a2 * 2.0), [2.0,4.0,6.0])
+
+# TypedArray con dtype
+let t32 = TypedArray(3, "Float32")
+check("TypedArray dtype", len(t32), 3)
+let i32 = TypedArray(4, "Int32")
+check("Int32 len", len(i32), 4)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 17. NDARRAY
+# ─────────────────────────────────────────────────────────────
+section("17. NdArray")
+
+let v1 = nd.array([1.0,2.0,3.0])
+check("nd 1D shape", v1.shape, [3])
+check("nd 1D ndim", v1.ndim, 1)
+check("nd 1D size", v1.size, 3)
+check("nd 1D idx", v1[0], 1.0)
+
+let m = nd.array([[1.0,2.0],[3.0,4.0]])
+check("nd 2D shape", m.shape, [2,2])
+check("nd 2D ndim", m.ndim, 2)
+check("nd 2D size", m.size, 4)
+
+# accesso
+check("nd row", nd.sum(m[0]), 3.0)
+
+# view semantics
+let row = m[0]
+row[0] = 99.0
+check("nd view write", m[0][0], 99.0)
+m[0][0] = 1.0  # ripristina
+
+# multi-index
+m[[0,1]] = 42.0
+check("nd multi-index write", m[[0,1]], 42.0)
+m[[0,1]] = 2.0  # ripristina
+
+# zeros/ones
+let z2 = nd.reshape(nd.zeros(6), [2,3])
+check("nd zeros shape", z2.shape, [2,3])
+check("nd zeros val", z2[0][0], 0.0)
+
+# reshape/flatten
+let flat = nd.flatten(m)
+check("nd flatten ndim", flat.ndim, 1)
+check("nd flatten size", flat.size, 4)
+
+# transpose
+let t = nd.transpose(m)
+check("nd transpose shape", t.shape, [2,2])
+
+# matmul
+let A = nd.array([[1.0,0.0],[0.0,1.0]])  # identità
+let B = nd.array([[2.0,3.0],[4.0,5.0]])
+let C = nd.matmul(A, B)
+check("nd matmul identity", C[0][0], 2.0)
+check("nd matmul identity 2", C[1][1], 5.0)
+
+# reductions
+let m2 = nd.array([[1.0,2.0],[3.0,4.0]])
+check_approx("nd sum all", nd.sum(m2), 10.0, 0.0001)
+check_approx("nd mean all", nd.mean(m2), 2.5, 0.0001)
+check("nd max", nd.max(m2), 4.0)
+check("nd min", nd.min(m2), 1.0)
+check("nd argmax", nd.argmax(nd.array([1.0,5.0,3.0])), 1)
+check("nd argmin", nd.argmin(nd.array([3.0,1.0,5.0])), 1)
+
+# boolean masking
+let arr3 = nd.array([1.0,5.0,3.0,7.0,2.0])
+let mask = nd.gt(arr3, 2.0)
+let filtered = nd.masked(arr3, mask)
+check("nd masked size", filtered.size, 3)
+
+# cumsum
+let cs = nd.cumsum(nd.array([1.0,2.0,3.0,4.0]))
+check("nd cumsum 0", cs[0], 1.0)
+check("nd cumsum 3", cs[3], 10.0)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 18. STDLIB MATH
+# ─────────────────────────────────────────────────────────────
+section("18. Math module")
+
+check("math.pi", math.pi > 3.14159 and math.pi < 3.14160, true)
+check("math.e", math.e > 2.71828 and math.e < 2.71829, true)
+check_approx("math.sqrt", math.sqrt(9.0), 3.0, 0.0001)
+check_approx("math.sin pi/2", math.sin(math.pi/2.0), 1.0, 0.0001)
+check_approx("math.cos 0", math.cos(0.0), 1.0, 0.0001)
+check_approx("math.tan pi/4", math.tan(math.pi/4.0), 1.0, 0.0001)
+check_approx("math.exp 1", math.exp(1.0), math.e, 0.0001)
+check_approx("math.log e", math.log(math.e), 1.0, 0.0001)
+check_approx("math.log2 8", math.log2(8.0), 3.0, 0.0001)
+check_approx("math.log10 1000", math.log10(1000.0), 3.0, 0.0001)
+check("math.floor", math.floor(3.7), 3.0)
+check("math.ceil", math.ceil(3.2), 4.0)
+check("math.round", math.round(3.5), 4.0)
+check("math.abs neg", math.abs(-5.0), 5.0)
+check("math.sign pos", math.sign(3.0), 1.0)
+check("math.sign neg", math.sign(-3.0), -1.0)
+check("math.sign zero", math.sign(0.0), 0.0)
+check("math.clamp", math.clamp(5.0, 0.0, 3.0), 3.0)
+check("math.gcd", math.gcd(12, 8), 4)
+check("math.lcm", math.lcm(4, 6), 12)
+check("math.factorial", math.factorial(5), 120)
+check_approx("math.cbrt 27", math.cbrt(27.0), 3.0, 0.0001)
+check_approx("math.hypot", math.hypot(3.0, 4.0), 5.0, 0.0001)
+check_approx("math.degrees", math.degrees(math.pi), 180.0, 0.001)
+check_approx("math.radians", math.radians(180.0), math.pi, 0.0001)
+check("math.is_nan false", math.is_nan(1.0), false)
+check("math.is_nan true", math.is_nan(0.0/0.0), true)
+check("math.is_inf false", math.is_inf(1.0), false)
+check("math.is_inf true", math.is_inf(1.0/0.0), true)
+check("math.is_finite true", math.is_finite(1.0), true)
+check("math.is_finite false", math.is_finite(1.0/0.0), false)
+check_approx("math.sinh", math.sinh(0.0), 0.0, 0.0001)
+check_approx("math.cosh", math.cosh(0.0), 1.0, 0.0001)
+check_approx("math.tanh", math.tanh(0.0), 0.0, 0.0001)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 19. STDLIB GLOBALI
+# ─────────────────────────────────────────────────────────────
+section("19. Stdlib globali")
+
+check("abs int", abs(-5), 5)
+check("abs float", abs(-3.14), 3.14)
+check("min", min(3, 7), 3)
+check("max", max(3, 7), 7)
+check("min float", min(1.5, 2.5), 1.5)
+check("sum array", sum([1,2,3,4,5]), 15)
+check("pow", math.pow(2.0, 8.0), 256.0)
+check("chr", chr(65), "A")
+check("ord", ord("A"), 65)
+check("hex", hex(255), "0xff")
+check("bin", bin(10), "0b1010")
+check("oct", oct(8), "0o10")
+check("str int", str(42), "42")
+check("str float", str(3.14), "3.14")
+check("str bool", str(true), "true")
+check("int str", int("42"), 42)
+check("int float", int(3.9), 3)
+check("float str", float("3.14"), 3.14)
+check("float int", float(3), 3.0)
+check("bool 0", bool(0), false)
+check("bool 1", bool(1), true)
+check("bool str", bool("x"), true)
+check("bool empty", bool(""), false)
+check("repr str", repr("hi"), "\"hi\"")
+check("repr int", repr(42), "42")
+check("repr none", repr(None), "None")
+
+# type predicates
+check("is_int", is_int(42), true)
+check("is_int false", is_int(3.14), false)
+check("is_float", is_float(3.14), true)
+check("is_str", is_str("x"), true)
+check("is_bool", is_bool(true), true)
+check("is_none", is_none(None), true)
+check("is_none false", is_none(0), false)
+check("is_array", is_array([1,2,3]), true)
+check("is_dict", is_dict({"a":1}), true)
+
+# random globals
+let ch = choice([10,20,30])
+check("choice in range", ch == 10 or ch == 20 or ch == 30, true)
+
+var rnd_arr = [1,2,3,4,5]
+shuffle(rnd_arr)
+check("shuffle len", len(rnd_arr), 5)
+
+let smp = sample([1,2,3,4,5], 3)
+check("sample len", len(smp), 3)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 20. COLLECTIONS MODULE
+# ─────────────────────────────────────────────────────────────
+section("20. Collections module")
+
+check("chunk", collections.chunk([1,2,3,4,5], 2), [[1,2],[3,4],[5]])
+check("take", collections.take([1,2,3,4,5], 3), [1,2,3])
+check("drop", collections.drop([1,2,3,4,5], 2), [3,4,5])
+check("flatten", collections.flatten([[1,2],[3,4]]), [1,2,3,4])
+check("unique", collections.unique([1,2,2,3,1]), [1,2,3])
+check("concat", collections.concat([1,2],[3,4]), [1,2,3,4])
+check("repeat", collections.repeat([1,2], 3), [1,2,1,2,1,2])
+check("product", collections.product([1,2,3,4,5]), 120)
+check("any true", collections.any([false,true,false]), true)
+check("any false", collections.any([false,false]), false)
+check("all true", collections.all([true,true]), true)
+check("all false", collections.all([true,false]), false)
+check("none true", collections.none([false,false]), true)
+check("none false", collections.none([false,true]), false)
+check("none_of alias", collections.none_of([false,false]), true)
+check("first", collections.first([10,20,30]), Some(10))
+check("first empty", collections.first([]), None)
+check("last", collections.last([10,20,30]), Some(30))
+check("last empty", collections.last([]), None)
+check("count_by", collections.count_by([1,2,1,3], 1), 2)
+check("sorted", collections.sorted([3,1,2]), [1,2,3])
+check("transpose", collections.transpose([[1,2],[3,4],[5,6]]), [[1,3,5],[2,4,6]])
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 21. RANGE
+# ─────────────────────────────────────────────────────────────
+section("21. Range")
+
+fn range_for_test()
+    var s = 0
+    for i in 0..5
+        s += i
+    return s
+check("range len", len(0..10), 10)
+check("range incl len", len(0..=10), 11)
+check("range in for", range_for_test(), 10)
+check("range type", type(0..5), "Range")
+check("range sum via map", reduce(map(0..5, fn(x) x), fn(a,x) a+x), 10)
+check("range contains", 3 in range(5), true)
+check("range not contains", 5 in range(5), false)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 22. OPERATORE IS
+# ─────────────────────────────────────────────────────────────
+section("22. Operatore is")
+
+class Foo
+    fn __init__(self)
+        pass
+class Bar
+    fn __init__(self)
+        pass
+
+trait Myable
+    fn my(self)
+
+impl Myable for Foo
+    fn my(self)
+        return "foo"
+
+let foo = Foo()
+let bar = Bar()
+
+check("is class match", foo is Foo, true)
+check("is class mismatch", foo is Bar, false)
+check("is trait match", foo is Myable, true)
+check("is trait mismatch", bar is Myable, false)
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# 23. EDGE CASES E COMPORTAMENTI LIMITE
+# ─────────────────────────────────────────────────────────────
+section("23. Edge cases")
+
+# stringa vuota
+check("empty str len", len(""), 0)
+check("empty str upper", upper(""), "")
+check("empty array len", len([]), 0)
+check("empty dict len", len({}), 0)
+
+# zero
+check("int zero", 0 == 0, true)
+check("float zero", 0.0 == 0.0, true)
+check("neg zero eq", 0.0 == -0.0, true)
+
+# large numbers
+check("large int", 2 ** 62, 4611686018427387904)
+
+# none comparisons
+check("none eq none", None == None, true)
+check("none neq 0", None != 0, true)
+
+# nested arrays
+let nested = [[1,[2,3]],[4,[5,6]]]
+check("nested arr", nested[0][1][0], 2)
+
+# dict con vari tipi chiave
+var dk = {}
+dk[1] = "int key"
+dk["str"] = "str key"
+check("dict int key", dk[1], "int key")
+check("dict str key", dk["str"], "str key")
+
+# funzione che restituisce None implicito
+fn no_return()
+    var x = 1
+check("implicit none", no_return(), None)
+
+fn bool_cond_zero()
+    if 0
+        return "t"
+    else
+        return "f"
+fn bool_cond_one()
+    if 1
+        return "t"
+    else
+        return "f"
+fn bool_cond_empty()
+    if ""
+        return "t"
+    else
+        return "f"
+fn bool_cond_str()
+    if "x"
+        return "t"
+    else
+        return "f"
+
+# bool in condizione
+check("bool cond 0", bool_cond_zero(), "f")
+check("bool cond 1", bool_cond_one(), "t")
+check("bool cond empty str", bool_cond_empty(), "f")
+check("bool cond str", bool_cond_str(), "t")
+
+# concatenazione con repr
+check("str concat int", "val=" + str(42), "val=42")
+
+section_end()
+
+# ─────────────────────────────────────────────────────────────
+# RIEPILOGO FINALE
+# ─────────────────────────────────────────────────────────────
+println("\n╔══════════════════════════════════════════════════════╗")
+let total = PASSED + FAILED
+println(f"║  Test completati: {total}")
+println(f"║  ✓ Passati:  {PASSED}")
+println(f"║  ✗ Falliti:  {FAILED}")
+if FAILED == 0
+    println("║  STATO: ✅ TUTTI I TEST PASSATI")
+else
+    println(f"║  STATO: ❌ {FAILED} FALLIMENTI")
+println("╚══════════════════════════════════════════════════════╝")

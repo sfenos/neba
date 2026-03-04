@@ -1,0 +1,730 @@
+# ============================================================
+# Neba v0.2.33 — Benchmark Suite Completo
+# ============================================================
+# Misura: tempo (ms), throughput, confronto CPython reference
+# Esegui con: ./target/release/neba tests/benchmark.neba
+# ============================================================
+
+fn bench(label, f, iterations)
+    let t0 = clock()
+    var i = 0
+    while i < iterations
+        f()
+        i += 1
+    let t1 = clock()
+    let ms = (t1 - t0) * 1000.0
+    let per_iter = ms / float(iterations)
+    println(f"  {label}: {ms:.1f}ms total  |  {per_iter:.4f}ms/iter  ({iterations} iter)")
+    return ms
+
+fn bench_once(label, f)
+    let t0 = clock()
+    let result = f()
+    let t1 = clock()
+    let ms = (t1 - t0) * 1000.0
+    println(f"  {label}: {ms:.2f}ms  →  {result}")
+    return ms
+
+println("╔══════════════════════════════════════════════════════╗")
+println("║     Neba v0.2.33 — Benchmark Suite Completo         ║")
+println("╚══════════════════════════════════════════════════════╝")
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 1. RICORSIONE
+# ─────────────────────────────────────────────────────────────
+println("━━━ 1. Ricorsione ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn fib(n)
+    if n <= 1
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+fn ackermann(m, n)
+    if m == 0
+        return n + 1
+    if n == 0
+        return ackermann(m - 1, 1)
+    return ackermann(m - 1, ackermann(m, n - 1))
+
+fn factorial(n)
+    if n <= 1
+        return 1
+    return n * factorial(n - 1)
+
+bench_once("fib(30)", fn() fib(30))
+bench_once("fib(35)", fn() fib(35))
+bench_once("ackermann(3,4)", fn() ackermann(3, 4))
+bench_once("factorial(15)", fn() factorial(15))
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 2. LOOP INTERI
+# ─────────────────────────────────────────────────────────────
+println("━━━ 2. Loop interi ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn loop_sum_1M()
+    var s = 0
+    var i = 0
+    while i < 1000000
+        s += i
+        i += 1
+    return s
+
+fn loop_for_range()
+    var s = 0
+    for i in 0..1000000
+        s += i
+    return s
+
+fn loop_nested()
+    var s = 0
+    for i in 0..1000
+        for j in 0..1000
+            s += i * j
+    return s
+
+fn loop_modulo()
+    var count = 0
+    for i in 0..1000000
+        if i % 7 == 0
+            count += 1
+    return count
+
+bench_once("while loop 1M sum", fn() loop_sum_1M())
+bench_once("for-range 1M sum", fn() loop_for_range())
+bench_once("nested loop 1000×1000", fn() loop_nested())
+bench_once("modulo filter 1M", fn() loop_modulo())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 3. FLOATING POINT
+# ─────────────────────────────────────────────────────────────
+println("━━━ 3. Floating point ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn float_loop()
+    var x = 1.0
+    var i = 0
+    while i < 1000000
+        x = x * 1.0000001 + 0.000001
+        i += 1
+    return x
+
+fn trig_loop()
+    var s = 0.0
+    var i = 0
+    while i < 100000
+        s += math.sin(float(i) * 0.0001) * math.cos(float(i) * 0.0002)
+        i += 1
+    return s
+
+fn sqrt_loop()
+    var s = 0.0
+    for i in 1..100001
+        s += math.sqrt(float(i))
+    return s
+
+fn pi_leibniz(n)
+    var sum = 0.0
+    for i in 0..n
+        if i % 2 == 0
+            sum += 1.0 / float(2 * i + 1)
+        else
+            sum -= 1.0 / float(2 * i + 1)
+    return sum * 4.0
+
+bench_once("float ops 1M", fn() float_loop())
+bench_once("sin/cos 100K", fn() trig_loop())
+bench_once("sqrt 100K", fn() sqrt_loop())
+bench_once("pi leibniz 1M", fn() pi_leibniz(1000000))
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 4. STRINGHE
+# ─────────────────────────────────────────────────────────────
+println("━━━ 4. Stringhe ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn string_concat()
+    var s = ""
+    for i in 0..1000
+        s = s + "x"
+    return len(s)
+
+fn string_fstring()
+    var result = ""
+    for i in 0..1000
+        result = f"valore={i} quadrato={i*i}"
+    return len(result)
+
+fn string_ops()
+    let s = "Hello, World! This is a test string for Neba."
+    var count = 0
+    for i in 0..10000
+        let u = upper(s)
+        let l = lower(s)
+        let parts = string.split(s, " ")
+        count += len(parts)
+    return count
+
+fn string_format_pos()
+    var count = 0
+    for i in 0..10000
+        let r = string.format("{} + {} = {}", i, i+1, i+i+1)
+        count += len(r)
+    return count
+
+bench_once("string concat 1K", fn() string_concat())
+bench_once("f-string 1K", fn() string_fstring())
+bench_once("string ops 10K", fn() string_ops())
+bench_once("string.format positional 10K", fn() string_format_pos())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 5. ARRAY E COLLEZIONI
+# ─────────────────────────────────────────────────────────────
+println("━━━ 5. Array e collezioni ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn array_build()
+    var a = []
+    for i in 0..100000
+        push(a, i)
+    return len(a)
+
+fn array_sort()
+    let a = range(10000)
+    var r = sorted(a, true)
+    return r[0]
+
+fn array_hof_pipeline()
+    let data = range(10000)
+    let result = reduce(
+        map(
+            filter(data, fn(x) x % 2 == 0),
+            fn(x) x * x
+        ),
+        fn(acc, x) acc + x
+    )
+    return result
+
+fn array_zip_enumerate()
+    let a = range(10000)
+    let b = range(10000)
+    let z = zip(a, b)
+    let e = enumerate(z, 1)
+    return len(e)
+
+fn array_find()
+    let a = range(100000)
+    let r = find(a, fn(x) x > 99990)
+    return r
+
+fn array_sorted_key()
+    let words = ["banana", "apple", "cherry", "date", "elderberry", "fig", "grape"]
+    var result = []
+    var i = 0
+    while i < 1000
+        result = sorted(words, fn(s) len(s))
+        i += 1
+    return result[0]
+
+bench_once("array build 100K push", fn() array_build())
+bench_once("sorted reverse 10K", fn() array_sort())
+bench_once("HOF pipeline (filter+map+reduce) 10K", fn() array_hof_pipeline())
+bench_once("zip+enumerate 10K", fn() array_zip_enumerate())
+bench_once("find in 100K", fn() array_find())
+bench_once("sorted key 1K×7", fn() array_sorted_key())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 6. DICT
+# ─────────────────────────────────────────────────────────────
+println("━━━ 6. Dict ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn dict_build()
+    var d = {}
+    for i in 0..10000
+        d[str(i)] = i * i
+    return len(d)
+
+fn dict_lookup()
+    var d = {}
+    for i in 0..10000
+        d[str(i)] = i
+    var s = 0
+    for i in 0..10000
+        s += d[str(i)]
+    return s
+
+fn dict_merge_ops()
+    var d = {}
+    for i in 0..1000
+        let d2 = {str(i): i, str(i*2): i*2}
+        d = merge(d, d2)
+    return len(d)
+
+bench_once("dict build 10K", fn() dict_build())
+bench_once("dict lookup 10K", fn() dict_lookup())
+bench_once("dict merge 1K", fn() dict_merge_ops())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 7. OOP — CLASSI E TRAITS
+# ─────────────────────────────────────────────────────────────
+println("━━━ 7. OOP — classi e traits ━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+class Vec2
+    x: Float = 0.0
+    y: Float = 0.0
+    fn __init__(self, x, y)
+        self.x = x
+        self.y = y
+    fn add(self, other)
+        return Vec2(self.x + other.x, self.y + other.y)
+    fn dot(self, other)
+        return self.x * other.x + self.y * other.y
+    fn length(self)
+        return math.sqrt(self.x * self.x + self.y * self.y)
+    fn scale(self, s)
+        return Vec2(self.x * s, self.y * s)
+
+trait Shape
+    fn area(self) -> Float
+    fn perimeter(self) -> Float
+    fn describe(self)
+        println(f"  Area={self.area():.4f} Perimeter={self.perimeter():.4f}")
+
+class Circle
+    r: Float = 1.0
+    fn __init__(self, r)
+        self.r = r
+
+impl Shape for Circle
+    fn area(self)
+        return math.pi * self.r * self.r
+    fn perimeter(self)
+        return 2.0 * math.pi * self.r
+
+class Rectangle
+    w: Float = 1.0
+    h: Float = 1.0
+    fn __init__(self, w, h)
+        self.w = w
+        self.h = h
+
+impl Shape for Rectangle
+    fn area(self)
+        return self.w * self.h
+    fn perimeter(self)
+        return 2.0 * (self.w + self.h)
+
+fn oop_vec2_ops()
+    var v = Vec2(1.0, 0.0)
+    var i = 0
+    while i < 100000
+        v = v.add(Vec2(0.001, 0.001)).scale(0.9999)
+        i += 1
+    return v.length()
+
+fn oop_dispatch()
+    let shapes = []
+    for i in 0..1000
+        if i % 2 == 0
+            push(shapes, Circle(float(i % 10 + 1)))
+        else
+            push(shapes, Rectangle(float(i % 10 + 1), float(i % 5 + 1)))
+    var total = 0.0
+    for s in shapes
+        total += s.area()
+    return total
+
+fn oop_method_chain()
+    var total = 0.0
+    for i in 0..10000
+        let v = Vec2(float(i), float(i+1))
+        total += v.add(Vec2(1.0, 1.0)).scale(2.0).dot(Vec2(1.0, 0.0))
+    return total
+
+bench_once("Vec2 ops 100K", fn() oop_vec2_ops())
+bench_once("trait dispatch 1K shapes", fn() oop_dispatch())
+bench_once("method chaining 10K", fn() oop_method_chain())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 8. CLOSURES E HOF AVANZATI
+# ─────────────────────────────────────────────────────────────
+println("━━━ 8. Closures e HOF avanzati ━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn make_adder(n)
+    return fn(x) x + n
+
+fn make_multiplier(n)
+    return fn(x) x * n
+
+fn compose(f, g)
+    return fn(x) f(g(x))
+
+fn closure_bench()
+    let add10 = make_adder(10)
+    let mul3  = make_multiplier(3)
+    let f     = compose(add10, mul3)
+    var s = 0
+    for i in 0..100000
+        s += f(i)
+    return s
+
+fn closure_counter()
+    fn make_counter(start)
+        var c = start
+        fn inc()
+            c += 1
+            return c
+        return inc
+    let cnt = make_counter(0)
+    var last = 0
+    for i in 0..100000
+        last = cnt()
+    return last
+
+fn hof_nested()
+    let data = range(1000)
+    var result = 0
+    for i in 0..100
+        result += reduce(
+            map(data, fn(x) x * 2),
+            fn(acc, x) acc + x
+        )
+    return result
+
+bench_once("closure compose 100K", fn() closure_bench())
+bench_once("closure counter 100K", fn() closure_counter())
+bench_once("HOF nested 100×1K", fn() hof_nested())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 9. TYPEDARRAY — CALCOLO NUMERICO
+# ─────────────────────────────────────────────────────────────
+println("━━━ 9. TypedArray — calcolo numerico ━━━━━━━━━━━━━━━━━")
+
+fn typed_sum()
+    let a = linspace(0.0, 1.0, 1000000)
+    return sum(a)
+
+fn typed_dot()
+    let a = ones(100000)
+    let b = fill(100000, 2.0)
+    return dot(a, b)
+
+fn typed_arith()
+    let a = linspace(0.0, 1.0, 100000)
+    let b = linspace(1.0, 2.0, 100000)
+    let c = a + b
+    let d = c * 2.0
+    return sum(d)
+
+fn typed_stats()
+    let a = linspace(0.0, 100.0, 1000000)
+    let s = sum(a)
+    let m = mean(a)
+    let mn = min_elem(a)
+    let mx = max_elem(a)
+    return s + m + mn + mx
+
+bench_once("TypedArray sum 1M", fn() typed_sum())
+bench_once("TypedArray dot 100K", fn() typed_dot())
+bench_once("TypedArray arith 100K", fn() typed_arith())
+bench_once("TypedArray stats 1M", fn() typed_stats())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 10. NDARRAY — ALGEBRA LINEARE
+# ─────────────────────────────────────────────────────────────
+println("━━━ 10. NdArray — algebra lineare ━━━━━━━━━━━━━━━━━━━━")
+
+fn ndarray_matmul_100()
+    let A = nd.reshape(nd.ones(10000), [100, 100])
+    let B = nd.reshape(nd.ones(10000), [100, 100])
+    let C = nd.matmul(A, B)
+    return nd.sum(C)
+
+fn ndarray_matmul_200()
+    let A = nd.reshape(nd.ones(40000), [200, 200])
+    let B = nd.reshape(nd.ones(40000), [200, 200])
+    let C = nd.matmul(A, B)
+    return nd.sum(C)
+
+fn ndarray_reductions()
+    let m = nd.reshape(nd.ones(100000), [1000, 100])
+    let row_sum = nd.sum(m, 1)
+    let col_mean = nd.mean(m, 0)
+    return nd.sum(row_sum) + nd.sum(col_mean)
+
+fn ndarray_boolean_mask()
+    let a = nd.array(to_list(linspace(0.0, 99.0, 100)))
+    var count = 0
+    var i = 0
+    while i < 1000
+        let mask = nd.gt(a, 50.0)
+        let filtered = nd.masked(a, mask)
+        count += 1
+        i += 1
+    return count
+
+fn ndarray_broadcast()
+    let a = nd.reshape(nd.zeros(100), [100, 1])
+    let b = nd.reshape(nd.ones(10000), [100, 100])
+    var c = nd.zeros(1)
+    var i = 0
+    while i < 100
+        c = nd.add(a, b)
+        i += 1
+    return nd.sum(c)
+
+bench_once("matmul 100×100", fn() ndarray_matmul_100())
+bench_once("matmul 200×200", fn() ndarray_matmul_200())
+bench_once("reductions 1000×100", fn() ndarray_reductions())
+bench_once("boolean mask 100K×1K", fn() ndarray_boolean_mask())
+bench_once("broadcast 100×100 (100×)", fn() ndarray_broadcast())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 11. PATTERN MATCHING
+# ─────────────────────────────────────────────────────────────
+println("━━━ 11. Pattern matching ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn match_int()
+    var s = 0
+    for i in 0..100000
+        let v = match i % 5
+            0 => 1
+            1 => 2
+            2 => 3
+            3 => 4
+            _ => 5
+        s += v
+    return s
+
+fn match_option()
+    fn maybe(n)
+        if n % 3 == 0
+            return Some(n)
+        return None
+    var s = 0
+    for i in 0..100000
+        match maybe(i)
+            Some(v) => s += v
+            None    => s += 0
+    return s
+
+fn match_result()
+    fn safe_div(a, b)
+        if b == 0
+            return Err("div0")
+        return Ok(a // b)
+    var s = 0
+    for i in 0..100000
+        match safe_div(i, i % 7 + 1)
+            Ok(v)  => s += v
+            Err(_) => s += 0
+    return s
+
+bench_once("match int 5 arms 100K", fn() match_int())
+bench_once("match Option 100K", fn() match_option())
+bench_once("match Result 100K", fn() match_result())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 12. ERROR HANDLING E PROPAGAZIONE
+# ─────────────────────────────────────────────────────────────
+println("━━━ 12. Error handling ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn error_chain()
+    fn step1(n)
+        if n < 0
+            return Err("negativo")
+        return Ok(n * 2)
+    fn step2(n)
+        if n > 1000
+            return Err("troppo grande")
+        return Ok(n + 1)
+    fn pipeline(n)
+        let r1 = step1(n)?
+        let r2 = step2(r1)?
+        return Ok(r2)
+    var ok_count = 0
+    var err_count = 0
+    for i in 0..100000
+        match pipeline(i % 600 - 100)
+            Ok(_)  => ok_count += 1
+            Err(_) => err_count += 1
+    return ok_count
+
+bench_once("error propagation ? 100K", fn() error_chain())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 13. STDLIB MATH
+# ─────────────────────────────────────────────────────────────
+println("━━━ 13. Stdlib math ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn math_intensive()
+    var s = 0.0
+    for i in 1..10001
+        let x = float(i) * 0.001
+        s += math.sin(x) + math.cos(x) + math.sqrt(x) + math.log(x)
+    return s
+
+fn math_hyperbolic()
+    var s = 0.0
+    for i in 1..10001
+        let x = float(i) * 0.001
+        s += math.sinh(x) * math.tanh(x)
+    return s
+
+fn math_misc()
+    var s = 0
+    for i in 0..10000
+        s += math.gcd(i + 1, i + 7)
+        s += math.floor(math.sqrt(float(i + 1)))
+    return s
+
+bench_once("sin/cos/sqrt/log 10K", fn() math_intensive())
+bench_once("sinh/tanh 10K", fn() math_hyperbolic())
+bench_once("gcd/floor/sqrt 10K", fn() math_misc())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 14. ALLOCAZIONE E GC PRESSURE
+# ─────────────────────────────────────────────────────────────
+println("━━━ 14. Allocazione e GC pressure ━━━━━━━━━━━━━━━━━━━━")
+
+fn alloc_many_arrays()
+    var total = 0
+    for i in 0..10000
+        let a = [i, i+1, i+2, i+3, i+4]
+        total += a[0] + a[4]
+    return total
+
+fn alloc_many_dicts()
+    var total = 0
+    for i in 0..10000
+        let d = {"a": i, "b": i*2, "c": i*3}
+        total += d["a"] + d["c"]
+    return total
+
+fn alloc_many_closures()
+    var total = 0
+    for i in 0..10000
+        let f = make_adder(i)
+        total += f(1)
+    return total
+
+fn alloc_many_instances()
+    var total = 0.0
+    for i in 0..10000
+        let v = Vec2(float(i), float(i+1))
+        total += v.length()
+    return total
+
+bench_once("alloc 10K arrays", fn() alloc_many_arrays())
+bench_once("alloc 10K dicts", fn() alloc_many_dicts())
+bench_once("alloc 10K closures", fn() alloc_many_closures())
+bench_once("alloc 10K instances", fn() alloc_many_instances())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# 15. BENCHMARK DI SISTEMA — ALGORITMI CLASSICI
+# ─────────────────────────────────────────────────────────────
+println("━━━ 15. Algoritmi classici ━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+fn sieve_of_eratosthenes(n)
+    var is_prime = []
+    for i in 0..n
+        push(is_prime, true)
+    is_prime[0] = false
+    if n > 1
+        is_prime[1] = false
+    var i = 2
+    while i * i < n
+        if is_prime[i]
+            var j = i * i
+            while j < n
+                is_prime[j] = false
+                j += i
+        i += 1
+    var count = 0
+    for p in is_prime
+        if p
+            count += 1
+    return count
+
+fn mergesort(arr)
+    let n = len(arr)
+    if n <= 1
+        return arr
+    let mid = n // 2
+    let left  = mergesort(slice(arr, 0, mid))
+    let right = mergesort(slice(arr, mid, n))
+    var result = []
+    var i = 0
+    var j = 0
+    while i < len(left) and j < len(right)
+        if left[i] <= right[j]
+            push(result, left[i])
+            i += 1
+        else
+            push(result, right[j])
+            j += 1
+    while i < len(left)
+        push(result, left[i])
+        i += 1
+    while j < len(right)
+        push(result, right[j])
+        j += 1
+    return result
+
+fn binary_search(arr, target)
+    var lo = 0
+    var hi = len(arr) - 1
+    while lo <= hi
+        let mid = (lo + hi) // 2
+        if arr[mid] == target
+            return mid
+        elif arr[mid] < target
+            lo = mid + 1
+        else
+            hi = mid - 1
+    return -1
+
+fn run_mergesort()
+    let data = []
+    var i = 999
+    while i >= 0
+        push(data, i)
+        i -= 1
+    let sorted_data = mergesort(data)
+    return sorted_data[500]
+
+fn run_binary_search()
+    let data = range(100000)
+    var found = 0
+    for target in [1234, 56789, 99999, 42, 77777]
+        let idx = binary_search(data, target)
+        if idx >= 0
+            found += 1
+    return found
+
+bench_once("sieve primes < 100K", fn() sieve_of_eratosthenes(100000))
+bench_once("mergesort 1K elementi", fn() run_mergesort())
+bench_once("binary search 100K ×5", fn() run_binary_search())
+println("")
+
+# ─────────────────────────────────────────────────────────────
+# RIEPILOGO FINALE
+# ─────────────────────────────────────────────────────────────
+println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+println("  Benchmark completato — Neba v0.2.33")
+println("  CPython 3.x reference (stesso hardware):")
+println("    fib(35):     ~1000ms")
+println("    loop 1M:     ~50ms")
+println("    TypedArray:  ~5ms (NumPy reference)")
+println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
