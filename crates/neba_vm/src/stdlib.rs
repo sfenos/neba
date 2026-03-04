@@ -54,12 +54,17 @@ pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     reg!("reverse",  neba_reverse);
     reg!("join",     neba_join);
     // Array helpers (v0.2.30)
-    reg!("flatten",  col_flatten);
-    reg!("unique",   col_unique);
-    reg!("concat",   col_concat);
-    reg!("slice",    neba_slice_arr);
-    reg!("index",    neba_index_arr);
-    reg!("count",    neba_count_arr);
+    reg!("flatten",     col_flatten);
+    reg!("unique",      col_unique);
+    reg!("concat",      col_concat);
+    reg!("slice",       neba_slice_arr);
+    reg!("index",       neba_index_arr);
+    reg!("count",       neba_count_arr);
+    // Array HOF (v0.2.31) — find/find_index handled in VM like map/filter
+    reg!("find",        neba_find_arr);
+    reg!("find_index",  neba_find_arr);  // VM intercepts before stdlib call
+    // Repr (v0.2.31)
+    reg!("repr",        neba_repr);
     // Dict helpers (v0.2.30)
     reg!("merge",    neba_merge_dict);
     reg!("dict_get", neba_dict_get);
@@ -350,15 +355,43 @@ fn neba_enumerate(args: &[Value]) -> Result<Value, String> {
 
 /// sorted(array) → nuova Array ordinata (non modifica l'originale)
 fn neba_sorted(args: &[Value]) -> Result<Value, String> {
+    let reverse = matches!(args.get(1), Some(Value::Bool(true)));
     match args.first() {
         Some(Value::Array(a)) => {
             let mut v = a.borrow().clone();
-            v.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+            v.sort_by(|x, y| {
+                let ord = x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal);
+                if reverse { ord.reverse() } else { ord }
+            });
             Ok(Value::array(v))
         }
-        _ => Err("sorted(array) requires Array".into()),
+        _ => Err("sorted(array, reverse=false) requires Array".into()),
     }
 }
+
+fn neba_repr(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Str(s))  => Ok(Value::str(format!("\"{}\"", s))),
+        Some(v)              => Ok(Value::str(v.to_string())),
+        None                 => Err("repr() requires 1 argument".into()),
+    }
+}
+
+fn neba_find_arr(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(a), Value::Closure(f)] => {
+            for item in a.borrow().iter() {
+                // call f(item) — we need the VM for this, so we use a workaround:
+                // store the closure call result by matching the closure's chunk
+                let _ = f; let _ = item;
+                return Err("find() with closure requires VM call — use filter()[0] instead".into());
+            }
+            Ok(Value::None)
+        }
+        _ => Err("find(array, fn) requires Array and Fn".into()),
+    }
+}
+
 
 /// any(array) → Bool: true se almeno un elemento è truthy
 fn neba_any(args: &[Value]) -> Result<Value, String> {
@@ -1338,6 +1371,11 @@ pub fn make_string_module() -> Value {
         entry("capitalize", str_capitalize),
         entry("title",      str_title),
         entry("slice",      str_slice),
+        // v0.2.31
+        entry("reverse",    str_reverse),
+        entry("index_of",   str_find),    // alias
+        entry("char_at",    str_char_at_fn),
+        entry("repr",       str_repr_fn),
     ];
     Value::dict(pairs)
 }
@@ -2114,6 +2152,36 @@ fn str_is_lower(args: &[Value]) -> Result<Value, String> {
         v => Err(format!("string.is_lower(): expected Str, got {}", v.type_name())),
     }
 }
+
+// ── v0.2.31 string additions ──────────────────────────────────────────────
+
+fn str_reverse(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("string.reverse() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::str(s.chars().rev().collect::<String>())),
+        v => Err(format!("string.reverse(): expected Str, got {}", v.type_name())),
+    }
+}
+
+fn str_char_at_fn(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Str(s), Value::Int(i)] => {
+            let chars: Vec<char> = s.chars().collect();
+            let idx = if *i < 0 { (chars.len() as i64 + i) as usize } else { *i as usize };
+            chars.get(idx).map(|c| Value::str(c.to_string()))
+                .ok_or_else(|| format!("string.char_at: index {} out of bounds", i))
+        }
+        _ => Err("string.char_at(str, i) requires Str and Int".into()),
+    }
+}
+
+fn str_repr_fn(args: &[Value]) -> Result<Value, String> {
+    match args.first() {
+        Some(Value::Str(s)) => Ok(Value::str(format!("\"{}\"", s))),
+        Some(v)             => Ok(Value::str(v.to_string())),
+        None                => Err("string.repr() requires 1 argument".into()),
+    }
+}
+
 fn str_capitalize(args: &[Value]) -> Result<Value, String> {
     match args.first().ok_or("string.capitalize() requires 1 argument")? {
         Value::Str(s) => {

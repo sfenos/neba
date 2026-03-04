@@ -501,6 +501,25 @@ impl Vm {
                             "sorted" if argc == 2 => {
                                 let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
                                 let (arr_val, cmp) = (args[0].clone(), args[1].clone());
+                                // If second arg is Bool → reverse flag (no VM call needed)
+                                if let Value::Bool(rev) = cmp {
+                                    let items: Vec<Value> = match &arr_val {
+                                        Value::Array(a) => a.borrow().clone(),
+                                        Value::IntRange(s, e, inc) => {
+                                            let (s, e, inc) = (*s, *e, *inc);
+                                            if inc { (s..=e).map(Value::Int).collect() }
+                                            else   { (s..e).map(Value::Int).collect() }
+                                        }
+                                        _ => return Err(VmError::TypeError(format!("sorted: expected Array or Range, got {}", arr_val.type_name()))),
+                                    };
+                                    let mut v = items;
+                                    v.sort_by(|x, y| {
+                                        let ord = x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal);
+                                        if rev { ord.reverse() } else { ord }
+                                    });
+                                    push!(Value::array(v));
+                                    continue 'dispatch;
+                                }
                                 let items: Vec<Value> = match &arr_val {
                                     Value::Array(a) => a.borrow().clone(),
                                     Value::IntRange(s, e, inc) => {
@@ -524,6 +543,47 @@ impl Vm {
                                 });
                                 if let Some(e) = sort_err { return Err(e); }
                                 push!(Value::array(pairs.into_iter().map(|(_, v)| v).collect()));
+                                continue 'dispatch;
+                            }
+                            // find(array, fn) → first matching element or None
+                            "find" => {
+                                if argc != 2 { return Err(VmError::Generic("find(array, fn) requires 2 arguments".into())); }
+                                let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
+                                let (arr, cb) = (args[0].clone(), args[1].clone());
+                                let items: Vec<Value> = match &arr {
+                                    Value::Array(a) => a.borrow().clone(),
+                                    Value::IntRange(s, e, inc) => {
+                                        let (s, e, inc) = (*s, *e, *inc);
+                                        if inc { (s..=e).map(Value::Int).collect() }
+                                        else   { (s..e).map(Value::Int).collect() }
+                                    }
+                                    _ => return Err(VmError::TypeError(format!("find: first argument must be Array or Range, got {}", arr.type_name()))),
+                                };
+                                save_ip!();
+                                let mut found = Value::None;
+                                for item in items {
+                                    let k = self.call_value_sync(cb.clone(), vec![item.clone()])?;
+                                    if k.is_truthy() { found = item; break; }
+                                }
+                                push!(found);
+                                continue 'dispatch;
+                            }
+                            // find_index(array, fn) → index of first match or -1
+                            "find_index" => {
+                                if argc != 2 { return Err(VmError::Generic("find_index(array, fn) requires 2 arguments".into())); }
+                                let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
+                                let (arr, cb) = (args[0].clone(), args[1].clone());
+                                let items: Vec<Value> = match &arr {
+                                    Value::Array(a) => a.borrow().clone(),
+                                    _ => return Err(VmError::TypeError(format!("find_index: first argument must be Array, got {}", arr.type_name()))),
+                                };
+                                save_ip!();
+                                let mut found_idx: i64 = -1;
+                                for (i, item) in items.iter().enumerate() {
+                                    let k = self.call_value_sync(cb.clone(), vec![item.clone()])?;
+                                    if k.is_truthy() { found_idx = i as i64; break; }
+                                }
+                                push!(Value::Int(found_idx));
                                 continue 'dispatch;
                             }
                             // push(arr, val) — fast-path: evita Vec<Value> alloc
