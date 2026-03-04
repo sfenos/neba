@@ -205,7 +205,8 @@ pub enum Value {
     /// TypedArray compatto — Float64, Float32, Int64, Int32 (v0.2.6)
     TypedArray(RcTypedArray),
     Closure(RcClosure),
-    NativeFn(String, NativeFn),
+    /// Funzione nativa — nome come Rc<String> per ridurre la dimensione di Value (8 byte vs 24)
+    NativeFn(Rc<String>, NativeFn),
 
     // Option / Result
     Some_(Box<Value>),
@@ -414,6 +415,11 @@ impl Value {
         Value::Str(Rc::new(s.into()))
     }
 
+    /// Costruisce un Value::NativeFn — usa Rc<String> per il nome (riduce size di Value)
+    pub fn native_fn(name: impl Into<String>, f: NativeFn) -> Self {
+        Value::NativeFn(Rc::new(name.into()), f)
+    }
+
     /// Costruisce un Value::Array da un Vec<Value>
     pub fn array(v: Vec<Value>) -> Self {
         Value::Array(Rc::new(RefCell::new(v)))
@@ -437,3 +443,6 @@ impl Value {
         Value::TypedArray(Rc::new(RefCell::new(data)))
     }
 }
+
+
+

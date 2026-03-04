@@ -4,7 +4,7 @@ use crate::value::Value;
 pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
     macro_rules! reg {
         ($name:expr, $fn:expr) => {
-            globals.insert($name.to_string(), (Value::NativeFn($name.to_string(), $fn), false));
+            globals.insert($name.to_string(), (Value::native_fn($name, $fn), false));
         };
     }
     reg!("print",    neba_print);
@@ -505,7 +505,7 @@ use crate::value::{TypedArrayData, Dtype};
 pub fn register_typed_array_globals(globals: &mut std::collections::HashMap<String, (Value, bool)>) {
     macro_rules! reg {
         ($name:expr, $fn:expr) => {
-            globals.insert($name.to_string(), (Value::NativeFn($name.to_string(), $fn), false));
+            globals.insert($name.to_string(), (Value::native_fn($name, $fn), false));
         };
     }
     // Costruttori
@@ -765,7 +765,7 @@ fn parse_size_dtype(args: &[Value], default_dtype: &str) -> Result<(usize, Strin
 /// Costruisce il modulo `math` come Dict di funzioni native + costanti.
 pub fn make_math_module() -> Value {
     fn entry(name: &str, f: fn(&[Value]) -> Result<Value, String>) -> (Value, Value) {
-        (Value::str(name), Value::NativeFn(name.to_string(), f))
+        (Value::str(name), Value::native_fn(name, f))
     }
     let pairs = vec![
         // Costanti
@@ -1008,7 +1008,7 @@ fn math_factorial(args: &[Value]) -> Result<Value, String> {
 /// Costruisce il modulo `string` come Dict di funzioni native.
 pub fn make_string_module() -> Value {
     fn entry(name: &str, f: fn(&[Value]) -> Result<Value, String>) -> (Value, Value) {
-        (Value::str(name), Value::NativeFn(name.to_string(), f))
+        (Value::str(name), Value::native_fn(name, f))
     }
     let pairs = vec![
         entry("split",      str_split),
@@ -1229,7 +1229,7 @@ fn str_format(args: &[Value]) -> Result<Value, String> {
 /// Costruisce il modulo `io` come Dict di funzioni per I/O file.
 pub fn make_io_module() -> Value {
     fn entry(name: &str, f: fn(&[Value]) -> Result<Value, String>) -> (Value, Value) {
-        (Value::str(name), Value::NativeFn(name.to_string(), f))
+        (Value::str(name), Value::native_fn(name, f))
     }
     let pairs = vec![
         entry("read_file",   io_read_file),
@@ -1245,7 +1245,7 @@ pub fn make_io_module() -> Value {
         // io.path come sotto-dizionario
         (Value::str("path"), {
             fn e(name: &str, f: fn(&[Value]) -> Result<Value, String>) -> (Value, Value) {
-                (Value::str(name), Value::NativeFn(name.to_string(), f))
+                (Value::str(name), Value::native_fn(name, f))
             }
             Value::dict(vec![
                 e("join",     io_path_join),
@@ -1315,7 +1315,7 @@ fn io_delete_file(args: &[Value]) -> Result<Value, String> {
 /// funzioni globali separate; il modulo espone utility non-HOF.
 pub fn make_collections_module() -> Value {
     fn entry(name: &str, f: fn(&[Value]) -> Result<Value, String>) -> (Value, Value) {
-        (Value::str(name), Value::NativeFn(name.to_string(), f))
+        (Value::str(name), Value::native_fn(name, f))
     }
     let pairs = vec![
         entry("zip",        col_zip),
@@ -1958,7 +1958,7 @@ fn io_mkdir(args: &[Value]) -> Result<Value, String> {
 /// Modulo `random` standalone — alias delle funzioni math.random*
 pub fn make_random_module() -> Value {
     fn entry(name: &str, f: fn(&[Value]) -> Result<Value, String>) -> (Value, Value) {
-        (Value::str(name), Value::NativeFn(name.to_string(), f))
+        (Value::str(name), Value::native_fn(name, f))
     }
     Value::dict(vec![
         entry("random",  math_random),
