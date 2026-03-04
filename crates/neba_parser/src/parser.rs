@@ -609,6 +609,15 @@ impl Parser {
                 self.advance();
                 let field = match self.peek_kind().clone() {
                     TokenKind::Identifier(s) => { self.advance(); s }
+                    // Keywords that can appear as method/field names after a dot
+                    TokenKind::NoneLiteral   => { self.advance(); "none".to_string() }
+                    TokenKind::BoolLiteral(true)  => { self.advance(); "true".to_string() }
+                    TokenKind::BoolLiteral(false) => { self.advance(); "false".to_string() }
+                    TokenKind::And           => { self.advance(); "and".to_string() }
+                    TokenKind::Or            => { self.advance(); "or".to_string() }
+                    TokenKind::Not           => { self.advance(); "not".to_string() }
+                    TokenKind::In            => { self.advance(); "in".to_string() }
+                    TokenKind::Is            => { self.advance(); "is".to_string() }
                     _ => "?".to_string(),
                 };
                 Node::new(ExprKind::Field { object: Box::new(left), field }, span)

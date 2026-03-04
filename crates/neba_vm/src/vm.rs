@@ -614,6 +614,12 @@ impl Vm {
                         (Value::Err_(e), "unwrap")      => return Err(VmError::Generic(format!("unwrap() chiamato su Err({})", e))),
                         (Value::Ok_(inner), "unwrap_or")=> { self.stack.drain(obj_idx..); Some(*inner.clone()) }
                         (Value::Err_(_), "unwrap_or")   => { let d = if argc > 0 { self.stack.drain(obj_idx..).nth(1).unwrap_or(Value::None) } else { Value::None }; Some(d) }
+                        // unwrap_err: get the error value, panic if Ok
+                        (Value::Err_(e), "unwrap_err")  => { self.stack.drain(obj_idx..); Some(*e.clone()) }
+                        (Value::Ok_(v), "unwrap_err")   => return Err(VmError::Generic(format!("unwrap_err() chiamato su Ok({})", v))),
+                        // value: alias for unwrap
+                        (Value::Ok_(inner), "value")    => { self.stack.drain(obj_idx..); Some(*inner.clone()) }
+                        (Value::Err_(e), "value")       => { self.stack.drain(obj_idx..); Some(*e.clone()) }
                         (Value::Some_(_), "is_some")    => { self.stack.drain(obj_idx..); Some(Value::Bool(true)) }
                         (Value::None, "is_some")        => { self.stack.drain(obj_idx..); Some(Value::Bool(false)) }
                         (Value::Some_(_), "is_none") | (Value::None, "is_none") => { let r = matches!(obj, Value::None); self.stack.drain(obj_idx..); Some(Value::Bool(r)) }
@@ -621,6 +627,9 @@ impl Vm {
                         (Value::None, "unwrap")         => return Err(VmError::Generic("unwrap() chiamato su None".into())),
                         (Value::Some_(inner), "unwrap_or") => { self.stack.drain(obj_idx..); Some(*inner.clone()) }
                         (Value::None, "unwrap_or")      => { let d = if argc > 0 { self.stack.drain(obj_idx..).nth(1).unwrap_or(Value::None) } else { Value::None }; Some(d) }
+                        // value alias for Option
+                        (Value::Some_(inner), "value")  => { self.stack.drain(obj_idx..); Some(*inner.clone()) }
+                        (Value::None, "value")          => { self.stack.drain(obj_idx..); Some(Value::None) }
                         _ => None,
                     };
                     if let Some(result) = builtin_result { push!(result); continue 'dispatch; }

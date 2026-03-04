@@ -436,11 +436,12 @@ impl Value {
             Value::TypedArray(t) => t.borrow().dtype().array_type_name(),
             Value::NdArray(_)    => "NdArray",
             Value::Closure(_)   => "Function",
-            Value::NativeFn(_,_)=> "NativeFunction",
+            Value::NativeFn(_,_)=> "Function",
             Value::Some_(_)     => "Some",
             Value::Ok_(_)       => "Ok",
             Value::Err_(_)      => "Err",
             Value::Instance(_)  => "Instance",
+            Value::IntRange(_,_,_) => "Range",
             _                   => "<internal>",
         }
     }

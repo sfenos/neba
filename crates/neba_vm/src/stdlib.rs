@@ -1634,6 +1634,7 @@ pub fn make_collections_module() -> Value {
         entry("any",        col_any),
         entry("all",        col_all),
         entry("none",       col_none),
+        entry("none_of",    col_none),   // alias: avoids conflict with `none` keyword
         entry("first",      col_first),
         entry("last",       col_last),
         entry("concat",     col_concat),
