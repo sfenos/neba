@@ -255,9 +255,12 @@ impl Compiler {
                                 .collect();
                             for default_method in &trait_info.methods {
                                 if let StmtKind::Fn { name: mname, body, .. } = &default_method.inner {
-                                    // Solo se il body NON è solo `pass` e non è già overridato
-                                    let is_pass_only = body.len() == 1 && matches!(body[0].inner, StmtKind::Pass);
-                                    if !is_pass_only && !impl_names.contains(mname) {
+                                    // Metodo con body vuoto = firma astratta (non ha implementazione default)
+                                    // Metodo con solo `pass` = abstract marker
+                                    // Solo metodi con body reale (len > 0, non solo pass) sono default
+                                    let is_abstract = body.is_empty()
+                                        || (body.len() == 1 && matches!(body[0].inner, StmtKind::Pass));
+                                    if !is_abstract && !impl_names.contains(mname) {
                                         entry.push(default_method.clone());
                                     }
                                 }

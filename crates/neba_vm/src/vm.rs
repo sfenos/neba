@@ -1050,10 +1050,13 @@ impl Vm {
             (Value::NdArray(a), Value::Int(b))   => Ok(Value::nd_array(a.borrow().ewise_scalar(*b as f64, |x,y| x/y))),
             (Value::Float(a), Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a, |x,y| y/x))),
             (Value::Int(a),   Value::NdArray(b)) => Ok(Value::nd_array(b.borrow().ewise_scalar(*a as f64, |x,y| y/x))),
+            // Int / Int: comportamento intero — DivisionByZero se b==0, altrimenti Float
+            (Value::Int(_), Value::Int(0)) => Err(VmError::DivisionByZero),
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Float(*a as f64 / *b as f64)),
             _ => {
                 let b = r.as_float().ok_or_else(|| VmError::TypeError(format!("'/' on {}", r.type_name())))?;
-                if b == 0.0 { return Err(VmError::DivisionByZero); }
                 let a = l.as_float().ok_or_else(|| VmError::TypeError(format!("'/' on {}", l.type_name())))?;
+                // Float/Float (o misto): segue IEEE 754 — 1.0/0.0=Inf, 0.0/0.0=NaN
                 Ok(Value::Float(a / b))
             }
         }

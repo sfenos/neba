@@ -130,10 +130,19 @@ impl Chunk {
         let mut i = 0usize;
         while i < len {
             let Some(op0) = Op::from_u8(code[i]) else { i += 1; continue; };
+            // SetTraits ha lunghezza variabile: [u8 count] + count*[u16 name_idx]
+            // Non ottimizzabile — saltiamo tutta l'istruzione
+            if op0 == Op::SetTraits {
+                let count = if i + 1 < len { code[i + 1] as usize } else { 0 };
+                i += 1 + 1 + count * 2;
+                continue;
+            }
             let op0_size = 1 + op0.operand_bytes();
             let next = i + op0_size;
             if next < len {
                 let Some(op1) = Op::from_u8(code[next]) else { i += op0_size; continue; };
+                // Saltiamo anche se op1 è SetTraits
+                if op1 == Op::SetTraits { i += op0_size; continue; }
                 let op1_size = 1 + op1.operand_bytes();
                 match (op0, op1) {
                     // Const [u16] Pop -> Nop x3 + Nop
@@ -282,7 +291,13 @@ impl Chunk {
                 _ => {}
             }
             out.push('\n');
-            i += 1 + op.operand_bytes();
+            // SetTraits ha lunghezza variabile: 1 opcode + 1 count + count*2 name_idx
+            if op == Op::SetTraits {
+                let count = if i + 1 < self.code.len() { self.code[i + 1] as usize } else { 0 };
+                i += 1 + 1 + count * 2;
+            } else {
+                i += 1 + op.operand_bytes();
+            }
         }
         out
     }
