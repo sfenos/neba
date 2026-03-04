@@ -61,11 +61,13 @@ Ultimo aggiornamento: 2026-03-04 (v0.2.32)
 
 ## Prossimi passi
 
-| Versione | Obiettivo |
-|----------|-----------|
-| **v0.2.33** | **Stdlib audit finale:** `string.format` positional (`"{} {}"` → `format("a","b")`), `string.split` senza separatore → chars, `sorted(arr,key=fn)` con key extractor, `zip` con N array, `enumerate` con start, `random.choice` globale |
-| **v0.2.34** | **IO migliorato:** `io.read_file` con encoding, `io.write_file` con append mode, `io.path.exists` robusto, `io.env` (getenv/setenv) |
-| **v0.2.35** | **String methods su istanza:** `"hello".upper()`, `"hello".split(",")` — dispatch tramite VM method call su Str |
+| Versione | Obiettivo | Stato |
+|----------|-----------|-------|
+| **v0.2.33** | **Stdlib audit finale:** `string.format` positional, `string.split` → chars, `sorted(key=fn)`, `zip` N array, `choice/shuffle/sample` globali | ✅ |
+| **v0.2.34** | **IO migliorato:** `io.env.get/set/all`, `io.write_file` append mode, `io.read_lines` con strip, `io.path.abs` | 🔜 |
+| **v0.2.35** | **String methods su istanza:** `"hello".upper()`, `"hello".split(",")`, `"hello".replace(...)` — dispatch VM su `Value::Str` per tutti i metodi del modulo `string` | 🔜 |
+
+*v0.2.35 completa la Phase 1. Il passo successivo è v0.3.0 (VM Optimization & JIT).*
 
 ---
 
