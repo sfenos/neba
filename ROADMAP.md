@@ -140,21 +140,23 @@ Ultimo aggiornamento: 2026-03-04 (v0.2.32)
 
 ## Phase 2 — VM Optimization & JIT Cranelift (v0.3.x)
 
-**Goal:** Ottimizzazioni VM sistematiche, poi JIT-compile funzioni hot via Cranelift.
+**Goal:** Ottimizzazioni VM sistematiche (adaptive specialization, NaN-boxing, inline caching), poi JIT-compile funzioni hot via Cranelift.
 
 | Versione | Obiettivo |
 |----------|-----------|
-| v0.3.0 | **String interning:** tabella globale di deduplicazione; confronti O(1) |
-| v0.3.1 | **NaN-boxing (unsafe):** Value 24→8 byte; `u64` con tag nei bit NaN; refactor 750+ match arms |
-| v0.3.2 | **Inline caching** per `GetField`/`CallMethod`: salva ultima posizione nel Dict; skip lookup su cache hit |
-| v0.3.3 | **JIT Cranelift integration:** compila funzioni hot a native code; call-count threshold; fallback all'interprete |
-| v0.3.4 | **JIT type specialization:** versioni specializzate per tipo concreto (Int path, Float path) |
-| v0.3.5 | **Tail call optimization:** `return f(args)` riutilizza il frame |
-| v0.3.6 | **SIMD auto-vectorization** per array ops (via Cranelift SIMD) |
-| v0.3.7 | **Concurrent GC v2:** concurrent mark phase, pause ridotte |
-| v0.3.8 | Profiler v1 + Benchmark suite v2 + documentation v2 |
+| v0.3.0 | **String interning:** tabella globale di deduplicazione; confronti O(1); `Rc<String>` → indice nella tabella |
+| v0.3.1 | **Adaptive opcode specialization:** opcode generici (`Add`, `Lt`, `GetField`, `CallMethod`) si riscrivono a runtime in versioni specializzate per tipo (`AddInt`, `AddFloat`, `LtInt`, `GetFieldCached`); `TypeFeedback` parallelo al bytecode; despecializzazione su tipo inatteso; produce profili per il JIT |
+| v0.3.2 | **NaN-boxing (unsafe):** Value 24→8 byte; `u64` con tag nei bit NaN; refactor 750+ match arms; stack entry da 24→8 byte migliora drasticamente cache L1 |
+| v0.3.3 | **Inline caching esplicito** per `GetField`/`CallMethod`: `class_id + slot` salvati nell'opcode; O(1) diretto su cache hit; complemento all'adaptive specialization |
+| v0.3.4 | **Frame slots fissi:** `slots: Vec<Value>` → `slots: [Value; N]` su stack Rust; elimina heap alloc per ogni chiamata di funzione; N determinato a compile-time dal compiler |
+| v0.3.5 | **JIT Cranelift integration:** compila funzioni hot a native code; usa `TypeFeedback` da v0.3.1; call-count threshold; fallback all'interprete su deopt |
+| v0.3.6 | **JIT type specialization:** versioni native specializzate per tipo concreto (Int path, Float path); guard + deopt se il tipo cambia |
+| v0.3.7 | **Tail call optimization:** `return f(args)` riutilizza il frame; ricorsione profonda senza stack overflow |
+| v0.3.8 | **SIMD auto-vectorization** per NdArray/TypedArray ops via Cranelift SIMD; `faer` come backend opzionale per matmul BLAS-level |
+| v0.3.9 | **Concurrent GC v2:** concurrent mark phase, pause ridotte; prerequisito per parallelismo v0.4.x |
+| v0.3.10 | Profiler v1 + Benchmark suite v2 + documentation v2 |
 
-**Benchmark target (v0.3.x):** Loop numerici entro 3× di Rust. Array ops entro 2× di NumPy.
+**Benchmark target (v0.3.x):** Loop numerici entro 2× di CPython. Array ops entro 1.5× di NumPy. OOP dispatch entro 3× di Python.
 
 ---
 
@@ -248,10 +250,11 @@ Ultimo aggiornamento: 2026-03-04 (v0.2.32)
 ## Note architetturali
 
 - **GC:** Rc + RefCell (reference counting). Target: concurrent generational GC in v0.3.7
-- **JIT:** Cranelift in v0.3.3, LLVM in v0.5.x. Prerequisito: VM optimization v0.3.0–v0.3.2
-- **Value size:** 24 byte (post v0.2.19). Target NaN-boxing 8 byte: v0.3.1
+- **JIT:** Cranelift in v0.3.5, LLVM in v0.5.x. Prerequisito: adaptive specialization (v0.3.1) + NaN-boxing (v0.3.2) — il JIT legge i `TypeFeedback` già raccolti dall'interprete adattivo
+- **Value size:** 24 byte (post v0.2.19). Target NaN-boxing 8 byte: v0.3.2
 - **Dict:** IndexMap O(1) con ordine di inserimento preservato (v0.2.17+)
 - **Constant folding:** tutti gli operatori su literal risolti a compile-time (v0.2.20+)
+- **Adaptive opcode specialization** (v0.3.1): opcode si riscrivono a runtime in versioni tipo-specializzate; `TypeFeedback` parallelo al bytecode alimenta il JIT; ciclo di vita: GENERIC → SPECIALIZED → MEGAMORPHIC
 - **Peephole:** Const+Pop→Nop, Not+Not→Nop, Jump offset=0→Nop con remap offset (v0.2.26+)
 - **NdArray:** view semantics con `Rc<RefCell<TypedArrayData>>` — modifiche propagano attraverso view (v0.2.29+)
 - **Float:** IEEE 754 — `1.0/0.0 = Inf`, `0.0/0.0 = NaN`; solo `Int/Int` lancia DivisionByZero (v0.2.31+)
