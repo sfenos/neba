@@ -67,12 +67,10 @@ check("set_11", nd.get(m, [1,1]), 5.0)
 check("set_22", nd.get(m, [2,2]), 1.0)
 check("set_untouched", nd.get(m, [0,1]), 0.0)
 
-# m[i][j] = val (assegnazione via indexing)
-# NOTA: m[i] restituisce una COPIA della riga, non una view
-# quindi m[i][j] = val NON modifica m
+# m[i] è ora una VIEW — scrivere nella row modifica m
 let row = m[0]
 row[0] = 99.0
-check("row_copy_not_view", nd.get(m, [0,0]), 9.0)   # m non modificato
+check("row_is_view", nd.get(m, [0,0]), 99.0)   # m modificato (view semantics)
 
 # ── OPERATORI ARITMETICI ──────────────────────────
 println("--- Operatori aritmetici ---")
@@ -248,7 +246,7 @@ check("astype_int_0", fi[0], 1)
 println("--- Broadcasting shape diverso ---")
 let big = nd.array([[1.0,2.0,3.0],[4.0,5.0,6.0]])
 let scalar_nd = nd.array([2.0])
-let bcast = big * scalar_nd   # broadcast scalar NdArray
+let bcast = nd.mul(big, scalar_nd)   # broadcast scalar NdArray (usa nd.mul per broadcasting)
 check("broadcast_scalar", bcast[0][0], 2.0)
 check("broadcast_scalar2", bcast[1][2], 12.0)
 

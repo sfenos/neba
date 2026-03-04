@@ -724,7 +724,7 @@ fn ta_ones(args: &[Value]) -> Result<Value, String> {
     if args.len() >= 2 && all_ints {
         let shape: Vec<usize> = args.iter().map(|v| if let Value::Int(n) = v { *n as usize } else { 1 }).collect();
         let mut nd = crate::value::NdArray::zeros(shape, crate::value::Dtype::Float64);
-        for i in 0..nd.size() { nd.data.set(i, Value::Float(1.0)).unwrap(); }
+        for i in 0..nd.size() { nd.set_flat(i, Value::Float(1.0)).unwrap(); }
         return Ok(Value::nd_array(nd));
     }
     if matches!(args.first(), Some(Value::Array(_))) {
@@ -2149,7 +2149,7 @@ fn nd_ones(args: &[Value]) -> Result<Value, String> {
     let shape = parse_shape(&args[0])?;
     let dtype = parse_dtype_opt(args, 1);
     let mut nd = Nd::zeros(shape, dtype);
-    for i in 0..nd.size() { nd.data.set(i, Value::Float(1.0)).unwrap(); }
+    for i in 0..nd.size() { nd.set_flat(i, Value::Float(1.0)).unwrap(); }
     Ok(Value::nd_array(nd))
 }
 
@@ -2160,7 +2160,7 @@ fn nd_full(args: &[Value]) -> Result<Value, String> {
     let dtype = parse_dtype_opt(args, 2);
     let fill = args[1].clone();
     let mut nd = Nd::zeros(shape, dtype);
-    for i in 0..nd.size() { nd.data.set(i, fill.clone()).unwrap(); }
+    for i in 0..nd.size() { nd.set_flat(i, fill.clone()).unwrap(); }
     Ok(Value::nd_array(nd))
 }
 
@@ -2177,7 +2177,7 @@ fn nd_eye(args: &[Value]) -> Result<Value, String> {
     };
     let dtype = parse_dtype_opt(args, 1);
     let mut nd = Nd::zeros(vec![n, n], dtype);
-    for i in 0..n { nd.data.set(i*n + i, Value::Float(1.0)).unwrap(); }
+    for i in 0..n { nd.set_flat(i*n + i, Value::Float(1.0)).unwrap(); }
     Ok(Value::nd_array(nd))
 }
 
@@ -2195,7 +2195,7 @@ fn nd_arange(args: &[Value]) -> Result<Value, String> {
     if step == 0.0 { return Err("nd.arange: step cannot be zero".into()); }
     let n = ((stop - start) / step).ceil().max(0.0) as usize;
     let data: Vec<f64> = (0..n).map(|i| start + i as f64 * step).collect();
-    Ok(Value::nd_array(Nd { shape: vec![n], data: TypedArrayData::Float64(data) }))
+    Ok(Value::nd_array(Nd::from_flat(TypedArrayData::Float64(data), vec![n]).unwrap()))
 }
 
 // nd_linspace(start, stop, num)
@@ -2208,10 +2208,10 @@ fn nd_linspace(args: &[Value]) -> Result<Value, String> {
         }
         _ => return Err("nd.linspace(start, stop, n) requires 3 args".into()),
     };
-    if n == 0 { return Ok(Value::nd_array(Nd { shape: vec![0], data: TypedArrayData::Float64(vec![]) })); }
-    if n == 1 { return Ok(Value::nd_array(Nd { shape: vec![1], data: TypedArrayData::Float64(vec![start]) })); }
+    if n == 0 { return Ok(Value::nd_array(Nd::from_flat(TypedArrayData::Float64(vec![]), vec![0]).unwrap())); }
+    if n == 1 { return Ok(Value::nd_array(Nd::from_flat(TypedArrayData::Float64(vec![start]), vec![1]).unwrap())); }
     let data: Vec<f64> = (0..n).map(|i| start + (stop - start) * i as f64 / (n-1) as f64).collect();
-    Ok(Value::nd_array(Nd { shape: vec![n], data: TypedArrayData::Float64(data) }))
+    Ok(Value::nd_array(Nd::from_flat(TypedArrayData::Float64(data), vec![n]).unwrap()))
 }
 
 // nd_from_list(list) — converte Array annidata in NdArray 2D/3D
@@ -2232,11 +2232,11 @@ fn nd_from_list(args: &[Value]) -> Result<Value, String> {
                             _ => return Err("nd.array: all rows must be arrays".into()),
                         }
                     }
-                    Ok(Value::nd_array(Nd { shape: vec![m, cols], data: TypedArrayData::Float64(data) }))
+                    Ok(Value::nd_array(Nd::from_flat(TypedArrayData::Float64(data), vec![m, cols]).unwrap()))
                 }
                 v if v.as_float().is_some() => {
                     let data: Vec<f64> = rows.iter().map(|v| v.as_float().unwrap_or(0.0)).collect();
-                    Ok(Value::nd_array(Nd { shape: vec![rows.len()], data: TypedArrayData::Float64(data) }))
+                    Ok(Value::nd_array(Nd::from_flat(TypedArrayData::Float64(data), vec![rows.len()]).unwrap()))
                 }
                 _ => Err("nd.array: unsupported structure".into()),
             }
@@ -2396,14 +2396,14 @@ fn nd_masked(args: &[Value]) -> Result<Value, String> {
     let mask = require_nd(args.get(1).unwrap_or(&Value::None), "nd.masked mask")?;
     let selected = nd.boolean_select(&mask)?;
     let n = selected.len();
-    Ok(Value::nd_array(crate::value::NdArray { shape: vec![n], data: crate::value::TypedArrayData::Float64(selected) }))
+    Ok(Value::nd_array(Nd::from_flat(TypedArrayData::Float64(selected), vec![n]).unwrap()))
 }
 
 // nd_nonzero(arr) → Array di indici dove arr != 0
 fn nd_nonzero(args: &[Value]) -> Result<Value, String> {
     let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.nonzero")?;
     let indices: Vec<Value> = (0..nd.size())
-        .filter(|&i| nd.data.get(i).unwrap().as_float().unwrap_or(0.0) != 0.0)
+        .filter(|&i| nd.get_flat(i).unwrap().as_float().unwrap_or(0.0) != 0.0)
         .map(|i| Value::Int(i as i64))
         .collect();
     Ok(Value::array(indices))
@@ -2451,7 +2451,7 @@ fn nd_cumsum(args: &[Value]) -> Result<Value, String> {
 // nd_flatten(arr)
 fn nd_flatten(args: &[Value]) -> Result<Value, String> {
     let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.flatten")?;
-    Ok(Value::nd_array(nd.flatten()))
+    Ok(Value::nd_array(nd.reshape(vec![nd.size()]).unwrap()))
 }
 
 // nd_clip(arr, lo, hi)
@@ -2460,7 +2460,7 @@ fn nd_clip(args: &[Value]) -> Result<Value, String> {
     let nd = require_nd(&args[0], "nd.clip")?;
     let lo = args[1].as_float().ok_or("nd.clip: lo must be numeric")?;
     let hi = args[2].as_float().ok_or("nd.clip: hi must be numeric")?;
-    Ok(Value::nd_array(nd.clip(lo, hi)))
+    Ok(Value::nd_array(nd.ewise_unary(|x| x.max(lo).min(hi))))
 }
 
 // nd_where(cond, a, b)
@@ -2469,7 +2469,15 @@ fn nd_where(args: &[Value]) -> Result<Value, String> {
     let cond = require_nd(&args[0], "nd.where")?;
     let a    = require_nd(&args[1], "nd.where")?;
     let b    = require_nd(&args[2], "nd.where")?;
-    Ok(Value::nd_array(Nd::where_cond(&cond, &a, &b)?))
+    { let n = cond.size();
+        if a.size() != n || b.size() != n { return Err("nd.where: size mismatch".into()); }
+        let mut out = Nd::zeros(cond.shape.clone(), crate::value::Dtype::Float64);
+        for i in 0..n {
+            let c = cond.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0);
+            let v = if c != 0.0 { a.get_flat(i).unwrap_or(Value::None) } else { b.get_flat(i).unwrap_or(Value::None) };
+            out.set_flat(i, v).unwrap();
+        }
+        Ok(Value::nd_array(out)) }
 }
 
 // nd_abs(arr)
@@ -2503,7 +2511,7 @@ fn nd_dot(args: &[Value]) -> Result<Value, String> {
     let b = require_nd(&args[1], "nd.dot")?;
     if a.ndim() == 1 && b.ndim() == 1 {
         if a.size() != b.size() { return Err(format!("nd.dot: size mismatch {} vs {}", a.size(), b.size())); }
-        let s: f64 = (0..a.size()).map(|i| a.data.get(i).unwrap().as_float().unwrap_or(0.0) * b.data.get(i).unwrap().as_float().unwrap_or(0.0)).sum();
+        let s: f64 = (0..a.size()).map(|i| a.get_flat(i).unwrap().as_float().unwrap_or(0.0) * b.get_flat(i).unwrap().as_float().unwrap_or(0.0)).sum();
         return Ok(Value::Float(s));
     }
     Ok(Value::nd_array(a.matmul(&b)?))
@@ -2522,9 +2530,9 @@ fn nd_hstack(args: &[Value]) -> Result<Value, String> {
     }).collect::<Result<_,_>>()?;
     if nds.iter().all(|nd| nd.ndim() == 1) {
         let mut out_data: Vec<f64> = Vec::new();
-        for nd in &nds { for i in 0..nd.size() { out_data.push(nd.data.get(i).unwrap().as_float().unwrap_or(0.0)); } }
+        for nd in &nds { for i in 0..nd.size() { out_data.push(nd.get_flat(i).unwrap().as_float().unwrap_or(0.0)); } }
         let n = out_data.len();
-        return Ok(Value::nd_array(Nd { shape: vec![n], data: TypedArrayData::Float64(out_data) }));
+        return Ok(Value::nd_array(Nd::from_flat(TypedArrayData::Float64(out_data), vec![n]).unwrap()));
     }
     let rows = nds[0].shape[0];
     for nd in &nds { if nd.shape[0] != rows { return Err("nd.hstack: rows mismatch".into()); } }
@@ -2535,8 +2543,8 @@ fn nd_hstack(args: &[Value]) -> Result<Value, String> {
         let cols = nd.shape.get(1).copied().unwrap_or(1);
         for r in 0..rows {
             for c in 0..cols {
-                let v = nd.data.get(r * cols + c).unwrap();
-                out.data.set(r * total_cols + col_offset + c, v).unwrap();
+                let v = nd.get_flat(r * cols + c).unwrap();
+                out.set_flat(r * total_cols + col_offset + c, v).unwrap();
             }
         }
         col_offset += cols;
@@ -2562,8 +2570,8 @@ fn nd_vstack(args: &[Value]) -> Result<Value, String> {
     }
     let total_rows: usize = nds.iter().map(|nd| if nd.ndim() == 1 { 1 } else { nd.shape[0] }).sum();
     let mut out_data: Vec<f64> = Vec::with_capacity(total_rows * cols);
-    for nd in &nds { for i in 0..nd.size() { out_data.push(nd.data.get(i).unwrap().as_float().unwrap_or(0.0)); } }
-    Ok(Value::nd_array(Nd { shape: vec![total_rows, cols], data: TypedArrayData::Float64(out_data) }))
+    for nd in &nds { for i in 0..nd.size() { out_data.push(nd.get_flat(i).unwrap().as_float().unwrap_or(0.0)); } }
+    Ok(Value::nd_array(Nd::from_flat(TypedArrayData::Float64(out_data), vec![total_rows, cols]).unwrap()))
 }
 
 // nd_diag(v) — crea matrice diagonale da 1D, oppure estrae diagonale da 2D
@@ -2572,13 +2580,13 @@ fn nd_diag(args: &[Value]) -> Result<Value, String> {
     if nd.ndim() == 1 {
         let n = nd.size();
         let mut out = Nd::zeros(vec![n, n], Dtype::Float64);
-        for i in 0..n { out.data.set(i*n+i, nd.data.get(i).unwrap()).unwrap(); }
+        for i in 0..n { out.set_flat(i*n+i, nd.get_flat(i).unwrap()).unwrap(); }
         Ok(Value::nd_array(out))
     } else if nd.ndim() == 2 {
         let (rows, cols) = (nd.shape[0], nd.shape[1]);
         let n = rows.min(cols);
         let mut out = Nd::zeros(vec![n], Dtype::Float64);
-        for i in 0..n { out.data.set(i, nd.data.get(i*cols+i).unwrap()).unwrap(); }
+        for i in 0..n { out.set_flat(i, nd.get_flat(i*cols+i).unwrap()).unwrap(); }
         Ok(Value::nd_array(out))
     } else {
         Err("nd.diag: requires 1D or 2D array".into())
@@ -2592,7 +2600,7 @@ fn nd_norm(args: &[Value]) -> Result<Value, String> {
     match ord {
         1 => Ok(Value::Float(nd.ewise_unary(f64::abs).sum_all())),
         2 => {
-            let ss: f64 = (0..nd.size()).map(|i| { let x = nd.data.get(i).unwrap().as_float().unwrap_or(0.0); x*x }).sum();
+            let ss: f64 = (0..nd.size()).map(|i| { let x = nd.get_flat(i).unwrap().as_float().unwrap_or(0.0); x*x }).sum();
             Ok(Value::Float(ss.sqrt()))
         }
         _ => Err(format!("nd.norm: ord={} not supported (use 1 or 2)", ord)),
@@ -2613,7 +2621,7 @@ fn nd_astype(args: &[Value]) -> Result<Value, String> {
         _ => return Err("nd.astype: dtype must be a string".into()),
     };
     let mut out = Nd::zeros(nd_src.shape.clone(), dtype);
-    for i in 0..nd_src.size() { out.data.set(i, nd_src.data.get(i).unwrap()).unwrap(); }
+    for i in 0..nd_src.size() { out.set_flat(i, nd_src.get_flat(i).unwrap()).unwrap(); }
     Ok(Value::nd_array(out))
 }
 

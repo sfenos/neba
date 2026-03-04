@@ -714,7 +714,7 @@ impl Vm {
                         (Value::NdArray(nd), Value::Int(i)) => {
                             let mut n = nd.borrow_mut();
                             let ui = if *i < 0 { (n.shape[0] as i64 + i) as usize } else { *i as usize };
-                            if n.ndim() == 1 { n.data.set(ui, val).map_err(VmError::Generic)?; }
+                            if n.ndim() == 1 { n.set_flat(ui, val).map_err(VmError::Generic)?; }
                             else { return Err(VmError::TypeError("NdArray 2D+: use nd.set(arr, [i,j], val) or arr[i,j]=val".into())); }
                         }
                         // NdArray multi-indice: arr[[i,j]] = val  (indice come Array)
@@ -1117,7 +1117,7 @@ impl Vm {
                     "shape"  => Ok(Value::array(n.shape.iter().map(|&x| Value::Int(x as i64)).collect())),
                     "ndim"   => Ok(Value::Int(n.ndim() as i64)),
                     "size"   => Ok(Value::Int(n.size() as i64)),
-                    "dtype"  => Ok(Value::str(n.data.dtype().name().to_string())),
+                    "dtype"  => Ok(Value::str(n.data.borrow().dtype().name().to_string())),
                     "T"      => Ok(Value::nd_array(n.transpose_axes(None).map_err(VmError::Generic)?)),
                     "flat"   => {
                         // Restituisce TypedArray 1D (view flat)

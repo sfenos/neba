@@ -1,0 +1,92 @@
+var ok = 0
+var fail = 0
+fn check(label, got, exp)
+    if got == exp
+        ok += 1
+    else
+        fail += 1
+        println(f"  FAIL [{label}]: got={got}  exp={exp}")
+
+println("=== VIEW SEMANTICS TEST ===")
+
+# ── m[i] è una VIEW — scrivere nella row modifica l'originale ────────────
+let m = zeros(3, 4)
+m[[0,1]] = 42.0
+m[[1,2]] = 99.0
+
+# Ottengo una view della riga 0
+let row0 = m[0]
+check("row0_before_1", row0[1], 42.0)   # la view vede 42
+
+# Scrivo nella view → modifica m
+row0[1] = 7.0
+check("view_write_row0", m[[0,1]], 7.0)  # m aggiornato!
+check("row0_after",      row0[1],  7.0)  # view aggiornata
+
+# Scrivo direttamente in m → view lo vede
+m[[0,3]] = 55.0
+check("m_write_sees_view", row0[3], 55.0)
+
+# Row 1
+let row1 = m[1]
+check("row1_before", row1[2], 99.0)
+row1[2] = 11.0
+check("view_write_row1", m[[1,2]], 11.0)
+
+# Doppia view: view di una view
+let m2 = zeros(4, 4)
+m2[[0,0]] = 1.0
+m2[[1,1]] = 2.0
+m2[[2,2]] = 3.0
+m2[[3,3]] = 4.0
+
+let r2 = m2[2]          # view di riga 2
+check("view_of_view_before", r2[2], 3.0)
+r2[2] = 99.0
+check("view_of_view_writes_m", m2[[2,2]], 99.0)
+
+# 3D array
+let t = zeros(2, 3, 4)
+t[[0,1,2]] = 7.0
+let slice0 = t[0]        # view del piano z=0, shape [3,4]
+check("3d_view_shape0", slice0.shape[0], 3)
+check("3d_view_shape1", slice0.shape[1], 4)
+
+let row01 = slice0[1]    # view della riga 1 del piano 0, shape [4]
+check("3d_row_before", row01[2], 7.0)
+row01[2] = 55.0
+check("3d_view_writes_t", t[[0,1,2]], 55.0)   # t aggiornato!
+check("3d_slice0_sees_it", slice0[[1,2]], 55.0) # slice0 lo vede
+
+# ── m[i][j] = val syntax ─────────────────────────────────────────────────
+println("--- m[i][j] = val syntax ---")
+let mat = zeros(3, 3)
+mat[0][0] = 1.0
+mat[0][1] = 2.0
+mat[1][2] = 5.0
+mat[2][0] = 9.0
+
+check("mij_00", mat[[0,0]], 1.0)
+check("mij_01", mat[[0,1]], 2.0)
+check("mij_12", mat[[1,2]], 5.0)
+check("mij_20", mat[[2,0]], 9.0)
+check("mij_untouched", mat[[1,1]], 0.0)
+
+# ── Multi-scrittura su stessa view ───────────────────────────────────────
+println("--- Multi-write on same view ---")
+let big = zeros(5, 5)
+let rr = big[2]
+for i in 0..5
+    rr[i] = (i * 10) * 1.0
+check("multi_0", big[[2,0]], 0.0)
+check("multi_1", big[[2,1]], 10.0)
+check("multi_2", big[[2,2]], 20.0)
+check("multi_4", big[[2,4]], 40.0)
+
+# Altre righe non toccate
+check("other_row_clean", big[[1,1]], 0.0)
+check("other_row_clean2", big[[3,0]], 0.0)
+
+println(f"\n=== View semantics: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL PASSED")

@@ -246,8 +246,9 @@ impl fmt::Debug for Value {
                 write!(f, "{}[{}]", d.dtype().name(), d.len())
             }
             Value::NdArray(nd) => {
-                let nd = nd.borrow();
-                write!(f, "NdArray(shape={:?}, dtype={})", nd.shape, nd.data.dtype().name())
+                let bnd = nd.borrow();
+                let dtype_name = bnd.data.borrow().dtype().name().to_string();
+                write!(f, "NdArray(shape={:?}, dtype={})", bnd.shape, dtype_name)
             }
             Value::Closure(c)   => write!(f, "Closure({})", c.proto.name),
             Value::NativeFn(n,_)=> write!(f, "NativeFn({})", n),
@@ -294,7 +295,7 @@ impl fmt::Display for Value {
             Value::NdArray(nd) => {
                 fn fmt_nd(nd: &NdArray, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     if nd.ndim() == 1 {
-                        let items: Vec<String> = (0..nd.size()).map(|i| nd.data.get(i).unwrap().to_string()).collect();
+                        let items: Vec<String> = (0..nd.size()).map(|i| nd.get_flat(i).unwrap().to_string()).collect();
                         write!(f, "[{}]", items.join(", "))
                     } else {
                         write!(f, "[")?;
@@ -497,15 +498,18 @@ impl Value {
 // ── NdArray — array multidimensionale (v0.2.25) ───────────────────────────
 
 /// Array multidimensionale con layout flat (row-major, come NumPy).
-/// Supporta dtype Float64, Float32, Int64, Int32.
-/// shape = [rows, cols, ...], data = Vec<f64> / Vec<f32> / Vec<i64> / Vec<i32>
+/// data è Rc<RefCell<TypedArrayData>> condiviso tra array e view.
+/// offset = primo indice valido nel buffer condiviso (0 per owner, >0 per view).
 #[derive(Debug, Clone)]
 pub struct NdArray {
-    pub shape: Vec<usize>,
-    pub data:  TypedArrayData,
+    pub shape:  Vec<usize>,
+    pub offset: usize,
+    pub data:   Rc<RefCell<TypedArrayData>>,
 }
 
 impl NdArray {
+    // ── Costruttori ───────────────────────────────────────────────────────
+
     /// Crea un NdArray di zeri con forma e dtype dati.
     pub fn zeros(shape: Vec<usize>, dtype: Dtype) -> Self {
         let n = shape.iter().product::<usize>().max(1);
@@ -515,406 +519,342 @@ impl NdArray {
             Dtype::Int64   => TypedArrayData::Int64(vec![0i64; n]),
             Dtype::Int32   => TypedArrayData::Int32(vec![0i32; n]),
         };
-        NdArray { shape, data }
+        NdArray { shape, offset: 0, data: Rc::new(RefCell::new(data)) }
     }
 
-    /// Crea un NdArray da dati flat e shape.
+    /// Crea da dati flat già esistenti (owner, offset=0).
     pub fn from_flat(data: TypedArrayData, shape: Vec<usize>) -> Result<Self, String> {
         let expected: usize = shape.iter().product();
         if data.len() != expected {
             return Err(format!("shape {:?} requires {} elements, got {}", shape, expected, data.len()));
         }
-        Ok(NdArray { shape, data })
+        Ok(NdArray { shape, offset: 0, data: Rc::new(RefCell::new(data)) })
     }
 
-    /// Numero di dimensioni.
+    // ── Helpers ──────────────────────────────────────────────────────────
+
     pub fn ndim(&self) -> usize { self.shape.len() }
+    pub fn size(&self) -> usize { self.shape.iter().product() }
 
-    /// Numero totale di elementi.
-    pub fn size(&self) -> usize { self.data.len() }
-
-    /// Calcola l'indice flat da indici multidimensionali (row-major).
+    /// Indice flat a partire dagli indici N-D (row-major, offset incluso).
     pub fn flat_index(&self, indices: &[usize]) -> Result<usize, String> {
         if indices.len() != self.shape.len() {
             return Err(format!("expected {} indices, got {}", self.shape.len(), indices.len()));
         }
-        let mut idx = 0usize;
+        let mut fi = self.offset;
+        // Calcoliamo le strides sul buffer completo (che ha shape.iter().product() elementi dopo offset)
+        // ma per un owner contiguo i strides sono semplicemente shape[1]*shape[2]*...
         let mut stride = 1usize;
-        for (&dim_size, &i) in self.shape.iter().zip(indices.iter()).rev() {
-            if i >= dim_size {
-                return Err(format!("index {} out of bounds for dimension size {}", i, dim_size));
-            }
-            idx += i * stride;
-            stride *= dim_size;
+        let mut strides = vec![1usize; self.shape.len()];
+        for d in (0..self.shape.len()).rev() {
+            strides[d] = stride;
+            stride *= self.shape[d];
         }
-        Ok(idx)
+        for d in 0..self.shape.len() {
+            if indices[d] >= self.shape[d] {
+                return Err(format!("index {} out of bounds for dim {} (size {})", indices[d], d, self.shape[d]));
+            }
+            fi += indices[d] * strides[d];
+        }
+        Ok(fi)
     }
 
-    /// Legge un elemento scalare dato gli indici.
+    // ── Lettura/Scrittura elemento ────────────────────────────────────────
+
     pub fn get_nd(&self, indices: &[usize]) -> Result<Value, String> {
         let fi = self.flat_index(indices)?;
-        self.data.get(fi).ok_or_else(|| format!("index out of bounds"))
+        self.data.borrow().get(fi).ok_or_else(|| "index out of bounds".to_string())
     }
 
-    /// Scrive un elemento scalare dato gli indici.
-    pub fn set_nd(&mut self, indices: &[usize], v: Value) -> Result<(), String> {
+    pub fn set_nd(&self, indices: &[usize], v: Value) -> Result<(), String> {
         let fi = self.flat_index(indices)?;
-        self.data.set(fi, v)
+        self.data.borrow_mut().set(fi, v)
     }
 
-    /// Restituisce una "fetta" lungo il primo asse (row per 2D).
-    /// Restituisce NdArray con shape[1:] o Value scalare se ndim==1.
+    /// Legge elemento flat relativo (0-based rispetto a offset).
+    #[inline]
+    pub fn get_flat(&self, i: usize) -> Option<Value> {
+        self.data.borrow().get(self.offset + i)
+    }
+
+    /// Scrive elemento flat relativo.
+    #[inline]
+    pub fn set_flat(&self, i: usize, v: Value) -> Result<(), String> {
+        self.data.borrow_mut().set(self.offset + i, v)
+    }
+
+    // ── Accesso per asse (VIEW per ndim>1) ────────────────────────────────
+
+    /// `m[i]` — restituisce VIEW della riga i (condivide i dati con self).
+    /// Scrivere nella view modifica self.
     pub fn get_axis0(&self, i: usize) -> Result<Value, String> {
-        if i >= self.shape[0] {
+        if self.shape.is_empty() || i >= self.shape[0] {
             return Err(format!("index {} out of bounds for shape {:?}", i, self.shape));
         }
         if self.ndim() == 1 {
-            return self.data.get(i).ok_or_else(|| "index out of bounds".into());
+            return self.data.borrow().get(self.offset + i)
+                .ok_or_else(|| "index out of bounds".to_string());
         }
-        // stride del primo asse
         let row_len: usize = self.shape[1..].iter().product();
-        let start = i * row_len;
-        let new_shape = self.shape[1..].to_vec();
-        let slice_data = self.slice_flat(start, start + row_len);
-        Ok(Value::nd_array(NdArray { shape: new_shape, data: slice_data }))
+        Ok(Value::nd_array(NdArray {
+            shape:  self.shape[1..].to_vec(),
+            offset: self.offset + i * row_len,
+            data:   Rc::clone(&self.data),   // condivide dati!
+        }))
     }
 
-    fn slice_flat(&self, start: usize, end: usize) -> TypedArrayData {
-        match &self.data {
-            TypedArrayData::Float64(v) => TypedArrayData::Float64(v[start..end].to_vec()),
-            TypedArrayData::Float32(v) => TypedArrayData::Float32(v[start..end].to_vec()),
-            TypedArrayData::Int64(v)   => TypedArrayData::Int64(v[start..end].to_vec()),
-            TypedArrayData::Int32(v)   => TypedArrayData::Int32(v[start..end].to_vec()),
+    /// `m[i] = row` — copia i dati di row nella riga i di self.
+    pub fn set_axis0(&self, i: usize, src: &NdArray) -> Result<(), String> {
+        if self.shape.is_empty() || i >= self.shape[0] {
+            return Err(format!("index {} out of bounds for shape {:?}", i, self.shape));
         }
+        let row_len: usize = self.shape[1..].iter().product();
+        if src.size() != row_len {
+            return Err(format!("row size mismatch: expected {}, got {}", row_len, src.size()));
+        }
+        for j in 0..row_len {
+            let v = src.get_flat(j).ok_or_else(|| "src out of bounds".to_string())?;
+            self.data.borrow_mut().set(self.offset + i * row_len + j, v)?;
+        }
+        Ok(())
     }
 
-    /// Trasposizione: inverte le dimensioni (generalizzata a N-D).
+    /// Produzione di dati flat (copiati, normalizzati da offset) per operazioni bulk.
+    pub fn to_flat_vec(&self) -> Vec<f64> {
+        (0..self.size())
+            .map(|i| self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0))
+            .collect()
+    }
+
+    // ── Operazioni strutturali ────────────────────────────────────────────
+
     pub fn transpose_axes(&self, axes: Option<Vec<usize>>) -> Result<NdArray, String> {
         let ndim = self.ndim();
         let axes = axes.unwrap_or_else(|| (0..ndim).rev().collect());
         if axes.len() != ndim { return Err("transpose: wrong number of axes".into()); }
-        let new_shape: Vec<usize> = axes.iter().map(|&a| self.shape[a]).collect();
-        let size = self.size();
-        let mut result = NdArray::zeros(new_shape.clone(), self.data.dtype());
-
-        // Calcola strides originali
-        let mut old_strides = vec![1usize; ndim];
-        for i in (0..ndim-1).rev() { old_strides[i] = old_strides[i+1] * self.shape[i+1]; }
-        let mut new_strides = vec![1usize; ndim];
-        for i in (0..ndim-1).rev() { new_strides[i] = new_strides[i+1] * new_shape[i+1]; }
-
-        for flat_old in 0..size {
-            // old multi-index
-            let mut rem = flat_old;
+        let mut new_shape = vec![0usize; ndim];
+        for (i, &a) in axes.iter().enumerate() { new_shape[i] = self.shape[a]; }
+        let mut out = NdArray::zeros(new_shape.clone(), self.data.borrow().dtype());
+        let old_strides: Vec<usize> = {
+            let mut s = vec![1usize; ndim]; for i in (0..ndim-1).rev() { s[i] = s[i+1] * self.shape[i+1]; } s
+        };
+        let new_strides: Vec<usize> = {
+            let mut s = vec![1usize; ndim]; for i in (0..ndim-1).rev() { s[i] = s[i+1] * new_shape[i+1]; } s
+        };
+        for fi in 0..self.size() {
+            let mut rem = fi;
             let mut old_idx = vec![0usize; ndim];
-            for d in 0..ndim {
-                old_idx[d] = rem / old_strides[d];
-                rem %= old_strides[d];
-            }
-            // new multi-index via axes permutation
-            let mut new_idx = vec![0usize; ndim];
-            for (new_d, &old_d) in axes.iter().enumerate() { new_idx[new_d] = old_idx[old_d]; }
-            let flat_new: usize = new_idx.iter().zip(new_strides.iter()).map(|(&i, &s)| i*s).sum();
-            let val = self.data.get(flat_old).unwrap();
-            result.data.set(flat_new, val).unwrap();
-        }
-        Ok(result)
-    }
-
-    /// Reshape: cambia shape senza copiare i dati (se la size coincide).
-    pub fn reshape(&self, new_shape: Vec<usize>) -> Result<NdArray, String> {
-        let new_size: usize = new_shape.iter().product();
-        if new_size != self.size() {
-            return Err(format!("reshape: cannot reshape size {} to {:?} (size {})", self.size(), new_shape, new_size));
-        }
-        Ok(NdArray { shape: new_shape, data: self.data.clone() })
-    }
-
-    /// Matmul 2D (A @ B).
-    pub fn matmul(&self, other: &NdArray) -> Result<NdArray, String> {
-        if self.ndim() != 2 || other.ndim() != 2 {
-            return Err("matmul requires 2D arrays".into());
-        }
-        let (m, k) = (self.shape[0], self.shape[1]);
-        let (k2, n) = (other.shape[0], other.shape[1]);
-        if k != k2 { return Err(format!("matmul: shape mismatch ({},{})*({},{})", m, k, k2, n)); }
-        let mut out = NdArray::zeros(vec![m, n], Dtype::Float64);
-        for i in 0..m {
-            for j in 0..n {
-                let mut acc = 0.0f64;
-                for p in 0..k {
-                    let a = self.data.get(i*k + p).unwrap().as_float().unwrap_or(0.0);
-                    let b = other.data.get(p*n + j).unwrap().as_float().unwrap_or(0.0);
-                    acc += a * b;
-                }
-                out.data.set(i*n + j, Value::Float(acc)).unwrap();
-            }
+            for d in 0..ndim { old_idx[d] = rem / old_strides[d]; rem %= old_strides[d]; }
+            let new_fi: usize = axes.iter().enumerate().map(|(i,&a)| old_idx[a] * new_strides[i]).sum();
+            let v = self.get_flat(fi).unwrap_or(Value::None);
+            out.set_flat(new_fi, v).unwrap();
         }
         Ok(out)
     }
 
-    /// Operazione element-wise (broadcast scalar o stesso shape).
-    pub fn ewise_op<F: Fn(f64, f64) -> f64>(&self, other: &NdArray, op: F) -> Result<NdArray, String> {
-        // Supporto broadcast: scalar (size 1) si estende
-        let broadcast_scalar = other.size() == 1;
-        if !broadcast_scalar && self.shape != other.shape {
-            return Err(format!("shape mismatch: {:?} vs {:?}", self.shape, other.shape));
+    pub fn reshape(&self, new_shape: Vec<usize>) -> Result<NdArray, String> {
+        let new_size: usize = new_shape.iter().product();
+        if new_size != self.size() {
+            return Err(format!("reshape: size mismatch {} vs {}", self.size(), new_size));
         }
-        let size = self.size();
+        // Copia i dati (la reshape non può essere una view senza strides generalizzate)
+        let data = TypedArrayData::Float64(self.to_flat_vec());
+        Ok(NdArray { shape: new_shape, offset: 0, data: Rc::new(RefCell::new(data)) })
+    }
+
+    // ── Operazioni element-wise ───────────────────────────────────────────
+
+    pub fn ewise_op<F: Fn(f64, f64) -> f64>(&self, other: &NdArray, op: F) -> Result<NdArray, String> {
+        if self.shape != other.shape {
+            return Err(format!("shape mismatch: {:?} vs {:?} (use nd.add/sub/mul/div for broadcast)", self.shape, other.shape));
+        }
+        let n = self.size();
         let mut out = NdArray::zeros(self.shape.clone(), Dtype::Float64);
-        for i in 0..size {
-            let a = self.data.get(i).unwrap().as_float().unwrap_or(0.0);
-            let b = if broadcast_scalar {
-                other.data.get(0).unwrap().as_float().unwrap_or(0.0)
-            } else {
-                other.data.get(i).unwrap().as_float().unwrap_or(0.0)
-            };
-            out.data.set(i, Value::Float(op(a, b))).unwrap();
+        for i in 0..n {
+            let a = self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0);
+            let b = other.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0);
+            out.set_flat(i, Value::Float(op(a, b))).unwrap();
         }
         Ok(out)
     }
 
     pub fn ewise_scalar<F: Fn(f64, f64) -> f64>(&self, scalar: f64, op: F) -> NdArray {
-        let size = self.size();
-        let mut out = NdArray::zeros(self.shape.clone(), Dtype::Float64);
-        for i in 0..size {
-            let a = self.data.get(i).unwrap().as_float().unwrap_or(0.0);
-            out.data.set(i, Value::Float(op(a, scalar))).unwrap();
+        let mut out = NdArray::zeros(self.shape.clone(), self.data.borrow().dtype());
+        for i in 0..self.size() {
+            let a = self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0);
+            out.set_flat(i, Value::Float(op(a, scalar))).unwrap();
         }
         out
     }
 
     pub fn ewise_unary<F: Fn(f64) -> f64>(&self, op: F) -> NdArray {
-        let size = self.size();
         let mut out = NdArray::zeros(self.shape.clone(), Dtype::Float64);
-        for i in 0..size {
-            let a = self.data.get(i).unwrap().as_float().unwrap_or(0.0);
-            out.data.set(i, Value::Float(op(a))).unwrap();
+        for i in 0..self.size() {
+            let a = self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0);
+            out.set_flat(i, Value::Float(op(a))).unwrap();
         }
         out
     }
 
-    pub fn sum_all(&self) -> f64 {
-        (0..self.size()).map(|i| self.data.get(i).unwrap().as_float().unwrap_or(0.0)).sum()
+    // ── Reduce globale ────────────────────────────────────────────────────
+
+    pub fn sum_all(&self) -> f64   { (0..self.size()).map(|i| self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0)).sum() }
+    pub fn mean_all(&self) -> f64  { self.sum_all() / self.size() as f64 }
+    pub fn min_all(&self) -> f64   { (0..self.size()).map(|i| self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(f64::INFINITY)).fold(f64::INFINITY, f64::min) }
+    pub fn max_all(&self) -> f64   { (0..self.size()).map(|i| self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(f64::NEG_INFINITY)).fold(f64::NEG_INFINITY, f64::max) }
+    pub fn argmin(&self) -> usize  {
+        let (idx,_) = (0..self.size()).map(|i| (i, self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(f64::INFINITY)))
+            .fold((0, f64::INFINITY), |(bi,bv),(i,v)| if v < bv { (i,v) } else { (bi,bv) });
+        idx
     }
-    pub fn mean_all(&self) -> f64 { self.sum_all() / self.size() as f64 }
-    pub fn min_all(&self) -> f64 {
-        (0..self.size()).map(|i| self.data.get(i).unwrap().as_float().unwrap_or(f64::INFINITY))
-            .fold(f64::INFINITY, f64::min)
-    }
-    pub fn max_all(&self) -> f64 {
-        (0..self.size()).map(|i| self.data.get(i).unwrap().as_float().unwrap_or(f64::NEG_INFINITY))
-            .fold(f64::NEG_INFINITY, f64::max)
-    }
-    pub fn argmin(&self) -> usize {
-        let mut best = (0, f64::INFINITY);
-        for i in 0..self.size() {
-            let v = self.data.get(i).unwrap().as_float().unwrap_or(f64::INFINITY);
-            if v < best.1 { best = (i, v); }
-        }
-        best.0
-    }
-    pub fn argmax(&self) -> usize {
-        let mut best = (0, f64::NEG_INFINITY);
-        for i in 0..self.size() {
-            let v = self.data.get(i).unwrap().as_float().unwrap_or(f64::NEG_INFINITY);
-            if v > best.1 { best = (i, v); }
-        }
-        best.0
+    pub fn argmax(&self) -> usize  {
+        let (idx,_) = (0..self.size()).map(|i| (i, self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(f64::NEG_INFINITY)))
+            .fold((0, f64::NEG_INFINITY), |(bi,bv),(i,v)| if v > bv { (i,v) } else { (bi,bv) });
+        idx
     }
     pub fn std_dev(&self, ddof: usize) -> f64 {
-        let n = self.size();
-        if n <= ddof { return 0.0; }
-        let m = self.mean_all();
-        let var = (0..n).map(|i| { let x = self.data.get(i).unwrap().as_float().unwrap_or(0.0) - m; x*x }).sum::<f64>() / (n - ddof) as f64;
+        let m = self.mean_all(); let n = self.size();
+        let var = (0..n).map(|i| { let x = self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0) - m; x*x }).sum::<f64>()
+            / (n - ddof).max(1) as f64;
         var.sqrt()
     }
     pub fn cumsum(&self) -> NdArray {
-        let size = self.size();
         let mut out = NdArray::zeros(self.shape.clone(), Dtype::Float64);
         let mut acc = 0.0f64;
-        for i in 0..size {
-            acc += self.data.get(i).unwrap().as_float().unwrap_or(0.0);
-            out.data.set(i, Value::Float(acc)).unwrap();
+        for i in 0..self.size() {
+            acc += self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0);
+            out.set_flat(i, Value::Float(acc)).unwrap();
         }
         out
     }
-    pub fn flatten(&self) -> NdArray {
-        NdArray { shape: vec![self.size()], data: self.data.clone() }
-    }
-    pub fn clip(&self, lo: f64, hi: f64) -> NdArray {
-        self.ewise_unary(|x| x.max(lo).min(hi))
-    }
-    pub fn where_cond(cond: &NdArray, a: &NdArray, b: &NdArray) -> Result<NdArray, String> {
-        let n = cond.size();
-        if a.size() != n || b.size() != n { return Err("where: shapes must match".into()); }
-        let mut out = NdArray::zeros(cond.shape.clone(), Dtype::Float64);
-        for i in 0..n {
-            let c = cond.data.get(i).unwrap().as_float().unwrap_or(0.0);
-            let v = if c != 0.0 { a.data.get(i).unwrap() } else { b.data.get(i).unwrap() };
-            out.data.set(i, v).unwrap();
-        }
-        Ok(out)
-    }
 
-    /// Somma lungo un asse.
-    pub fn sum_axis(&self, axis: usize) -> Result<NdArray, String> {
+    // ── Reduce per asse ───────────────────────────────────────────────────
+
+    fn reduce_axis<F: Fn(f64,f64)->f64>(&self, axis: usize, init: f64, op: F) -> Result<NdArray, String> {
         if axis >= self.ndim() { return Err(format!("axis {} out of range for ndim {}", axis, self.ndim())); }
-        let mut new_shape = self.shape.clone();
-        new_shape.remove(axis);
+        let mut new_shape = self.shape.clone(); new_shape.remove(axis);
         if new_shape.is_empty() { new_shape = vec![1]; }
         let mut out = NdArray::zeros(new_shape.clone(), Dtype::Float64);
-        let size = self.size();
+        for i in 0..out.size() { out.set_flat(i, Value::Float(init)).unwrap(); }
         let mut strides = vec![1usize; self.ndim()];
         for i in (0..self.ndim()-1).rev() { strides[i] = strides[i+1] * self.shape[i+1]; }
-        for fi in 0..size {
-            let mut rem = fi;
-            let mut mi = vec![0usize; self.ndim()];
+        let out_strides: Vec<usize> = { let mut s = vec![1usize; out.ndim()]; for i in (0..out.ndim().saturating_sub(1)).rev() { s[i] = s[i+1] * out.shape[i+1]; } s };
+        for fi in 0..self.size() {
+            let mut rem = fi; let mut mi = vec![0usize; self.ndim()];
             for d in 0..self.ndim() { mi[d] = rem / strides[d]; rem %= strides[d]; }
-            let mut out_mi: Vec<usize> = mi.clone();
-            out_mi.remove(axis);
-            let out_strides: Vec<usize> = {
-                let mut s = vec![1usize; out.ndim()];
-                for i in (0..out.ndim().saturating_sub(1)).rev() { s[i] = s[i+1] * out.shape[i+1]; }
-                s
-            };
+            let mut out_mi = mi.clone(); out_mi.remove(axis);
             let out_fi: usize = out_mi.iter().zip(out_strides.iter()).map(|(&i,&s)| i*s).sum();
-            let cur = out.data.get(out_fi).unwrap().as_float().unwrap_or(0.0);
-            let add = self.data.get(fi).unwrap().as_float().unwrap_or(0.0);
-            out.data.set(out_fi, Value::Float(cur + add)).unwrap();
+            let cur = out.get_flat(out_fi).and_then(|v| v.as_float()).unwrap_or(init);
+            let v   = self.get_flat(fi).and_then(|v| v.as_float()).unwrap_or(0.0);
+            out.set_flat(out_fi, Value::Float(op(cur, v))).unwrap();
         }
         Ok(out)
     }
 
+    pub fn sum_axis(&self, axis: usize)  -> Result<NdArray, String> { self.reduce_axis(axis, 0.0, |a,b| a+b) }
+    pub fn max_axis(&self, axis: usize)  -> Result<NdArray, String> { self.reduce_axis(axis, f64::NEG_INFINITY, f64::max) }
+    pub fn min_axis(&self, axis: usize)  -> Result<NdArray, String> { self.reduce_axis(axis, f64::INFINITY, f64::min) }
     pub fn mean_axis(&self, axis: usize) -> Result<NdArray, String> {
         let s = self.sum_axis(axis)?;
         let n = self.shape[axis] as f64;
-        Ok(s.ewise_scalar(n, |x,_| x / n))
+        Ok(s.ewise_scalar(n, |a,_| a / n))
     }
 
-    pub fn max_axis(&self, axis: usize) -> Result<NdArray, String> {
-        if axis >= self.ndim() { return Err(format!("axis {} out of range", axis)); }
-        let mut new_shape = self.shape.clone(); new_shape.remove(axis);
-        if new_shape.is_empty() { new_shape = vec![1]; }
-        let mut out = NdArray::zeros(new_shape.clone(), Dtype::Float64);
-        // Initialize to -inf
-        for i in 0..out.size() { out.data.set(i, Value::Float(f64::NEG_INFINITY)).unwrap(); }
-        let mut strides = vec![1usize; self.ndim()];
-        for i in (0..self.ndim()-1).rev() { strides[i] = strides[i+1] * self.shape[i+1]; }
-        let out_strides: Vec<usize> = { let mut s = vec![1usize; out.ndim()]; for i in (0..out.ndim().saturating_sub(1)).rev() { s[i] = s[i+1] * out.shape[i+1]; } s };
-        for fi in 0..self.size() {
-            let mut rem = fi; let mut mi = vec![0usize; self.ndim()];
-            for d in 0..self.ndim() { mi[d] = rem / strides[d]; rem %= strides[d]; }
-            let mut out_mi = mi.clone(); out_mi.remove(axis);
-            let out_fi: usize = out_mi.iter().zip(out_strides.iter()).map(|(&i,&s)| i*s).sum();
-            let cur = out.data.get(out_fi).unwrap().as_float().unwrap_or(f64::NEG_INFINITY);
-            let v = self.data.get(fi).unwrap().as_float().unwrap_or(f64::NEG_INFINITY);
-            if v > cur { out.data.set(out_fi, Value::Float(v)).unwrap(); }
+    // ── Matmul ────────────────────────────────────────────────────────────
+
+    pub fn matmul(&self, other: &NdArray) -> Result<NdArray, String> {
+        if self.ndim() != 2 || other.ndim() != 2 {
+            return Err("matmul: entrambi gli array devono essere 2D".into());
         }
+        let (m, k, n) = (self.shape[0], self.shape[1], other.shape[1]);
+        if k != other.shape[0] { return Err(format!("matmul: shape mismatch {}x{} @ {}x{}", m, k, other.shape[0], n)); }
+        let mut out = NdArray::zeros(vec![m, n], Dtype::Float64);
+        for i in 0..m { for j in 0..n {
+            let mut s = 0.0f64;
+            for p in 0..k {
+                s += self.get_flat(i*k+p).and_then(|v| v.as_float()).unwrap_or(0.0)
+                   * other.get_flat(p*n+j).and_then(|v| v.as_float()).unwrap_or(0.0);
+            }
+            out.set_flat(i*n+j, Value::Float(s)).unwrap();
+        }}
         Ok(out)
     }
 
-    pub fn min_axis(&self, axis: usize) -> Result<NdArray, String> {
-        if axis >= self.ndim() { return Err(format!("axis {} out of range", axis)); }
-        let mut new_shape = self.shape.clone(); new_shape.remove(axis);
-        if new_shape.is_empty() { new_shape = vec![1]; }
-        let mut out = NdArray::zeros(new_shape.clone(), Dtype::Float64);
-        for i in 0..out.size() { out.data.set(i, Value::Float(f64::INFINITY)).unwrap(); }
-        let mut strides = vec![1usize; self.ndim()];
-        for i in (0..self.ndim()-1).rev() { strides[i] = strides[i+1] * self.shape[i+1]; }
-        let out_strides: Vec<usize> = { let mut s = vec![1usize; out.ndim()]; for i in (0..out.ndim().saturating_sub(1)).rev() { s[i] = s[i+1] * out.shape[i+1]; } s };
-        for fi in 0..self.size() {
-            let mut rem = fi; let mut mi = vec![0usize; self.ndim()];
-            for d in 0..self.ndim() { mi[d] = rem / strides[d]; rem %= strides[d]; }
-            let mut out_mi = mi.clone(); out_mi.remove(axis);
-            let out_fi: usize = out_mi.iter().zip(out_strides.iter()).map(|(&i,&s)| i*s).sum();
-            let cur = out.data.get(out_fi).unwrap().as_float().unwrap_or(f64::INFINITY);
-            let v = self.data.get(fi).unwrap().as_float().unwrap_or(f64::INFINITY);
-            if v < cur { out.data.set(out_fi, Value::Float(v)).unwrap(); }
-        }
-        Ok(out)
-    }
+    // ── Broadcasting ──────────────────────────────────────────────────────
 
-    /// Broadcast self con other usando NumPy rules (trailing dimensions devono matchare o essere 1).
-    pub fn broadcast_op<F: Fn(f64, f64) -> f64>(&self, other: &NdArray, op: F) -> Result<NdArray, String> {
-        // Allinea shapes da destra
+    pub fn broadcast_op<F: Fn(f64,f64)->f64>(&self, other: &NdArray, op: F) -> Result<NdArray, String> {
         let ndim = self.ndim().max(other.ndim());
         let mut sa = vec![1usize; ndim]; let mut sb = vec![1usize; ndim];
-        for (i, &d) in self.shape.iter().rev().enumerate() { sa[ndim-1-i] = d; }
-        for (i, &d) in other.shape.iter().rev().enumerate() { sb[ndim-1-i] = d; }
+        for (i,&d) in self.shape.iter().rev().enumerate()  { sa[ndim-1-i] = d; }
+        for (i,&d) in other.shape.iter().rev().enumerate() { sb[ndim-1-i] = d; }
         let mut out_shape = vec![0usize; ndim];
         for d in 0..ndim {
-            if sa[d] == sb[d] { out_shape[d] = sa[d]; }
+            if sa[d] == sb[d]  { out_shape[d] = sa[d]; }
             else if sa[d] == 1 { out_shape[d] = sb[d]; }
             else if sb[d] == 1 { out_shape[d] = sa[d]; }
             else { return Err(format!("broadcast: shapes {:?} and {:?} incompatible", self.shape, other.shape)); }
         }
         let mut out = NdArray::zeros(out_shape.clone(), Dtype::Float64);
-        let out_size = out.size();
-        // Compute strides for broadcast indexing
-        let strides_a = broadcast_strides(&sa, &out_shape);
-        let strides_b = broadcast_strides(&sb, &out_shape);
         let mut out_strides = vec![1usize; ndim];
         for i in (0..ndim-1).rev() { out_strides[i] = out_strides[i+1] * out_shape[i+1]; }
-        for fi in 0..out_size {
+        let sa_strides = broadcast_strides(&sa, &out_shape);
+        let sb_strides = broadcast_strides(&sb, &out_shape);
+        for fi in 0..out.size() {
             let mut rem = fi; let mut idx = vec![0usize; ndim];
             for d in 0..ndim { idx[d] = rem / out_strides[d]; rem %= out_strides[d]; }
-            let ia: usize = idx.iter().zip(strides_a.iter()).map(|(&i,&s)| i*s).sum();
-            let ib: usize = idx.iter().zip(strides_b.iter()).map(|(&i,&s)| i*s).sum();
-            let va = self.data.get(ia).unwrap().as_float().unwrap_or(0.0);
-            let vb = other.data.get(ib).unwrap().as_float().unwrap_or(0.0);
-            out.data.set(fi, Value::Float(op(va, vb))).unwrap();
+            let ia: usize = idx.iter().zip(sa_strides.iter()).map(|(&i,&s)| i*s).sum();
+            let ib: usize = idx.iter().zip(sb_strides.iter()).map(|(&i,&s)| i*s).sum();
+            let va = self.get_flat(ia).and_then(|v| v.as_float()).unwrap_or(0.0);
+            let vb = other.get_flat(ib).and_then(|v| v.as_float()).unwrap_or(0.0);
+            out.set_flat(fi, Value::Float(op(va, vb))).unwrap();
         }
         Ok(out)
     }
 
-    /// Crea NdArray booleano (Float64: 1.0=true, 0.0=false) da comparazione con scalare.
+    // ── Boolean ───────────────────────────────────────────────────────────
+
     pub fn cmp_scalar(&self, scalar: f64, op: &str) -> NdArray {
         let mut out = NdArray::zeros(self.shape.clone(), Dtype::Float64);
         for i in 0..self.size() {
-            let v = self.data.get(i).unwrap().as_float().unwrap_or(0.0);
+            let v = self.get_flat(i).and_then(|x| x.as_float()).unwrap_or(0.0);
             let r = match op {
-                ">" => v > scalar, ">=" => v >= scalar, "<" => v < scalar,
-                "<=" => v <= scalar, "==" => v == scalar, "!=" => v != scalar,
-                _ => false,
+                ">"  => v > scalar, ">=" => v >= scalar,
+                "<"  => v < scalar, "<=" => v <= scalar,
+                "==" => v == scalar, "!=" => v != scalar, _ => false,
             };
-            out.data.set(i, Value::Float(if r { 1.0 } else { 0.0 })).unwrap();
+            out.set_flat(i, Value::Float(if r { 1.0 } else { 0.0 })).unwrap();
         }
         out
     }
 
-    /// Seleziona elementi dove mask == 1.0 → Array di Value
     pub fn boolean_select(&self, mask: &NdArray) -> Result<Vec<f64>, String> {
         if self.size() != mask.size() { return Err("mask size mismatch".into()); }
         Ok((0..self.size())
-            .filter(|&i| mask.data.get(i).unwrap().as_float().unwrap_or(0.0) != 0.0)
-            .map(|i| self.data.get(i).unwrap().as_float().unwrap_or(0.0))
+            .filter(|&i| mask.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0) != 0.0)
+            .map(|i| self.get_flat(i).and_then(|v| v.as_float()).unwrap_or(0.0))
             .collect())
     }
 
-    /// Slice 2D: righe [r0,r1), colonne [c0,c1)
+    // ── Slice 2D ─────────────────────────────────────────────────────────
+
     pub fn slice_2d(&self, r0: usize, r1: usize, c0: usize, c1: usize) -> Result<NdArray, String> {
-        if self.ndim() < 2 { return Err("slice_2d requires at least 2D array".into()); }
+        if self.ndim() < 2 { return Err("slice_2d requires 2D+".into()); }
         let cols = self.shape[1];
-        if r1 > self.shape[0] || c1 > cols { return Err(format!("slice out of bounds")); }
+        if r1 > self.shape[0] || c1 > cols { return Err("slice out of bounds".into()); }
         let out_rows = r1 - r0; let out_cols = c1 - c0;
-        let mut out = NdArray::zeros(vec![out_rows, out_cols], self.data.dtype());
-        for r in 0..out_rows {
-            for c in 0..out_cols {
-                let v = self.data.get((r0+r)*cols + c0+c).unwrap();
-                out.data.set(r*out_cols + c, v).unwrap();
-            }
-        }
+        let mut out = NdArray::zeros(vec![out_rows, out_cols], self.data.borrow().dtype());
+        for r in 0..out_rows { for c in 0..out_cols {
+            let v = self.get_flat((r0+r)*cols + c0+c).unwrap_or(Value::None);
+            out.set_flat(r*out_cols+c, v).unwrap();
+        }}
         Ok(out)
     }
-
 }
 
 fn broadcast_strides(shape: &[usize], out_shape: &[usize]) -> Vec<usize> {
     let ndim = out_shape.len();
     let mut strides = vec![0usize; ndim];
     let mut s = 1usize;
-    // Compute strides for the original shape (broadcast dims have stride 0)
     for d in (0..ndim).rev() {
         if shape[d] > 1 { strides[d] = s; s *= shape[d]; }
         else { strides[d] = 0; }
@@ -923,3 +863,4 @@ fn broadcast_strides(shape: &[usize], out_shape: &[usize]) -> Vec<usize> {
 }
 
 pub type RcNdArray = Rc<RefCell<NdArray>>;
+
