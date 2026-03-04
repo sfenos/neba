@@ -4,7 +4,7 @@ Ultimo aggiornamento: 2026-03-04
 
 ---
 
-## Stato attuale: v0.2.20 ✅
+## Stato attuale: v0.2.21 ✅
 
 ---
 
@@ -51,7 +51,7 @@ Ultimo aggiornamento: 2026-03-04
 
 | Versione | Obiettivo |
 |----------|-----------|
-| **v0.2.21** | **Benchmark gate** — misura performance attuale su suite completa (fib/loop/OOP/array/string); confronto con target; decisione go/no-go per JIT Cranelift |
+| v0.2.21 | **Benchmark gate** — 29ns/opcode, fib(35) 6437ms (2.3× CPython), TypedArray 158M elem/s. GO per JIT. | 2026-03-04 |
 | **v0.2.22** | **Bug fix OOP:** `__init__(self)` senza parametri non esegue il body; `str(instance)` non chiama `__str__`; `min/max` su TypedArray restituisce array; `sorted()` ignora comparatore custom |
 | **v0.2.23** | **Ottimizzazioni VM hot path:** fast-path inline `Int+Int` in `Op::Add`; `step_limit` con `#[cfg(debug_assertions)]`; `upvalues: Rc<Vec<Upvalue>>` |
 | **v0.2.24** | **Architettura:** unifica `call_value_sync` con loop principale (~250 righe duplicate); `Compiler` registry con `Arc<HashMap>` invece di clone per ogni funzione |
@@ -105,7 +105,7 @@ Ultimo aggiornamento: 2026-03-04
 | v0.2.18 | Stdlib expansion: +42 funzioni (math/random/string/io/io.path) | ✅ |
 | v0.2.19 | Value 40→24 bytes, zero-alloc Dict lookup, Array/Str slice IntRange | ✅ |
 | v0.2.20 | Constant folding: tutti gli operatori su literal | ✅ |
-| v0.2.21 | Benchmark gate — misura e go/no-go per JIT | 🔜 |
+| v0.2.21 | Benchmark gate — misura e go/no-go per JIT | ✅ |
 | v0.2.22 | Bug fix OOP: __init__ no-params, __str__, min/max TypedArray | 🔜 |
 | v0.2.23 | Ottimizzazioni VM hot path: Add fast-path, upvalues Rc | 🔜 |
 | v0.2.24 | Architettura: unifica call_value_sync, Compiler registry Arc | 🔜 |
