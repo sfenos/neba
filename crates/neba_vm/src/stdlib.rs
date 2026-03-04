@@ -2322,14 +2322,20 @@ fn nd_mean(args: &[Value]) -> Result<Value, String> {
     }
 }
 
-// nd_min/max/argmin/argmax
+// nd_min/max con asse opzionale
 fn nd_min(args: &[Value]) -> Result<Value, String> {
     let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.min")?;
-    Ok(Value::Float(nd.min_all()))
+    match args.get(1) {
+        Some(Value::Int(axis)) => Ok(Value::nd_array(nd.min_axis(*axis as usize)?)),
+        _ => Ok(Value::Float(nd.min_all())),
+    }
 }
 fn nd_max(args: &[Value]) -> Result<Value, String> {
     let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.max")?;
-    Ok(Value::Float(nd.max_all()))
+    match args.get(1) {
+        Some(Value::Int(axis)) => Ok(Value::nd_array(nd.max_axis(*axis as usize)?)),
+        _ => Ok(Value::Float(nd.max_all())),
+    }
 }
 fn nd_argmin(args: &[Value]) -> Result<Value, String> {
     let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.argmin")?;
@@ -2339,6 +2345,87 @@ fn nd_argmax(args: &[Value]) -> Result<Value, String> {
     let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.argmax")?;
     Ok(Value::Int(nd.argmax() as i64))
 }
+
+// nd_slice(arr, [r0,r1], [c0,c1]) → NdArray 2D slice
+fn nd_slice_fn(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.slice")?;
+    let row_range = match args.get(1) {
+        Some(Value::Array(a)) => {
+            let b = a.borrow();
+            let r0 = b.get(0).and_then(|v| if let Value::Int(n) = v { Some(*n as usize) } else { None }).unwrap_or(0);
+            let r1 = b.get(1).and_then(|v| if let Value::Int(n) = v { Some(*n as usize) } else { None }).unwrap_or(nd.shape[0]);
+            (r0, r1)
+        }
+        Some(Value::Int(r)) => (0, *r as usize),
+        _ => (0, nd.shape[0]),
+    };
+    let col_range = match args.get(2) {
+        Some(Value::Array(a)) => {
+            let b = a.borrow();
+            let c0 = b.get(0).and_then(|v| if let Value::Int(n) = v { Some(*n as usize) } else { None }).unwrap_or(0);
+            let c1 = b.get(1).and_then(|v| if let Value::Int(n) = v { Some(*n as usize) } else { None }).unwrap_or(if nd.ndim() > 1 { nd.shape[1] } else { nd.size() });
+            (c0, c1)
+        }
+        Some(Value::Int(c)) => (0, *c as usize),
+        _ => (0, if nd.ndim() > 1 { nd.shape[1] } else { nd.size() }),
+    };
+    Ok(Value::nd_array(nd.slice_2d(row_range.0, row_range.1, col_range.0, col_range.1)?))
+}
+
+// Boolean comparison: nd.gt(a, val), nd.lt, nd.ge, nd.le, nd.eq_scalar, nd.ne_scalar
+fn make_cmp(op: &'static str) -> impl Fn(&[Value]) -> Result<Value, String> {
+    move |args: &[Value]| {
+        let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.cmp")?;
+        let scalar = match args.get(1) {
+            Some(v) => v.as_float().ok_or_else(|| "expected numeric scalar".to_string())?,
+            None => return Err("nd comparison requires scalar".into()),
+        };
+        Ok(Value::nd_array(nd.cmp_scalar(scalar, op)))
+    }
+}
+fn nd_gt(args: &[Value]) -> Result<Value, String> { make_cmp(">")(args) }
+fn nd_lt(args: &[Value]) -> Result<Value, String> { make_cmp("<")(args) }
+fn nd_ge(args: &[Value]) -> Result<Value, String> { make_cmp(">=")(args) }
+fn nd_le(args: &[Value]) -> Result<Value, String> { make_cmp("<=")(args) }
+fn nd_eq_scalar(args: &[Value]) -> Result<Value, String> { make_cmp("==")(args) }
+fn nd_ne_scalar(args: &[Value]) -> Result<Value, String> { make_cmp("!=")(args) }
+
+// nd_masked(arr, mask) → 1D NdArray con elementi dove mask==1
+fn nd_masked(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.masked")?;
+    let mask = require_nd(args.get(1).unwrap_or(&Value::None), "nd.masked mask")?;
+    let selected = nd.boolean_select(&mask)?;
+    let n = selected.len();
+    Ok(Value::nd_array(crate::value::NdArray { shape: vec![n], data: crate::value::TypedArrayData::Float64(selected) }))
+}
+
+// nd_nonzero(arr) → Array di indici dove arr != 0
+fn nd_nonzero(args: &[Value]) -> Result<Value, String> {
+    let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.nonzero")?;
+    let indices: Vec<Value> = (0..nd.size())
+        .filter(|&i| nd.data.get(i).unwrap().as_float().unwrap_or(0.0) != 0.0)
+        .map(|i| Value::Int(i as i64))
+        .collect();
+    Ok(Value::array(indices))
+}
+
+// nd_broadcast_add/sub/mul/div — operazioni con broadcasting avanzato
+fn nd_broadcast_op(args: &[Value], opname: &str) -> Result<Value, String> {
+    let a = require_nd(args.first().unwrap_or(&Value::None), opname)?;
+    let b = require_nd(args.get(1).unwrap_or(&Value::None), opname)?;
+    let result = match opname {
+        "nd.add" => a.broadcast_op(&b, |x,y| x+y),
+        "nd.sub" => a.broadcast_op(&b, |x,y| x-y),
+        "nd.mul" => a.broadcast_op(&b, |x,y| x*y),
+        "nd.div" => a.broadcast_op(&b, |x,y| x/y),
+        _ => Err(format!("unknown op {}", opname)),
+    }?;
+    Ok(Value::nd_array(result))
+}
+fn nd_add(args: &[Value]) -> Result<Value, String> { nd_broadcast_op(args, "nd.add") }
+fn nd_sub(args: &[Value]) -> Result<Value, String> { nd_broadcast_op(args, "nd.sub") }
+fn nd_mul(args: &[Value]) -> Result<Value, String> { nd_broadcast_op(args, "nd.mul") }
+fn nd_div(args: &[Value]) -> Result<Value, String> { nd_broadcast_op(args, "nd.div") }
 
 // nd_std(arr, ddof?)
 fn nd_std(args: &[Value]) -> Result<Value, String> {
@@ -2407,32 +2494,6 @@ fn nd_exp_fn(args: &[Value]) -> Result<Value, String> {
 fn nd_log_fn(args: &[Value]) -> Result<Value, String> {
     let nd = require_nd(args.first().unwrap_or(&Value::None), "nd.log")?;
     Ok(Value::nd_array(nd.ewise_unary(f64::ln)))
-}
-
-// nd_add/sub/mul/div(a, b)
-fn nd_add(args: &[Value]) -> Result<Value, String> {
-    if args.len() < 2 { return Err("nd.add(a, b)".into()); }
-    let a = require_nd(&args[0], "nd.add")?;
-    let b = require_nd(&args[1], "nd.add")?;
-    Ok(Value::nd_array(a.ewise_op(&b, |x, y| x + y)?))
-}
-fn nd_sub(args: &[Value]) -> Result<Value, String> {
-    if args.len() < 2 { return Err("nd.sub(a, b)".into()); }
-    let a = require_nd(&args[0], "nd.sub")?;
-    let b = require_nd(&args[1], "nd.sub")?;
-    Ok(Value::nd_array(a.ewise_op(&b, |x, y| x - y)?))
-}
-fn nd_mul(args: &[Value]) -> Result<Value, String> {
-    if args.len() < 2 { return Err("nd.mul(a, b)".into()); }
-    let a = require_nd(&args[0], "nd.mul")?;
-    let b = require_nd(&args[1], "nd.mul")?;
-    Ok(Value::nd_array(a.ewise_op(&b, |x, y| x * y)?))
-}
-fn nd_div(args: &[Value]) -> Result<Value, String> {
-    if args.len() < 2 { return Err("nd.div(a, b)".into()); }
-    let a = require_nd(&args[0], "nd.div")?;
-    let b = require_nd(&args[1], "nd.div")?;
-    Ok(Value::nd_array(a.ewise_op(&b, |x, y| x / y)?))
 }
 
 // nd_dot(a, b) — matmul per 2D, dot product per 1D
@@ -2665,6 +2726,16 @@ pub fn register_nd_module(globals: &mut rustc_hash::FxHashMap<String, (Value, bo
         entry("astype",    nd_astype),
         entry("get",       nd_get),
         entry("set",       nd_set),
+        // v0.2.28 — nuove feature
+        entry("slice",     nd_slice_fn),
+        entry("gt",        nd_gt),
+        entry("lt",        nd_lt),
+        entry("ge",        nd_ge),
+        entry("le",        nd_le),
+        entry("eq",        nd_eq_scalar),
+        entry("ne",        nd_ne_scalar),
+        entry("masked",    nd_masked),
+        entry("nonzero",   nd_nonzero),
     ] { map.insert(k, v); }
     globals.insert("nd".into(), (Value::dict_from_map(map), true));
 }

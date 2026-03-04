@@ -1,0 +1,163 @@
+var ok = 0
+var fail = 0
+fn check(label, got, exp)
+    if got == exp
+        ok += 1
+    else
+        fail += 1
+        println(f"  FAIL [{label}]: got={got}  exp={exp}")
+fn check_near(label, got, exp)
+    var diff = got - exp
+    if diff < 0.0
+        diff = -diff
+    if diff < 0.001
+        ok += 1
+    else
+        fail += 1
+        println(f"  FAIL [{label}]: got={got}  exp={exp}")
+
+println("=== TEST NUOVE FEATURE NDARRAY ===")
+
+# ── m[[i,j]] READ & WRITE ──────────────────────────────
+println("--- Multi-index read/write ---")
+let m = zeros(3, 4)
+# write
+m[[0,0]] = 1.0
+m[[0,3]] = 2.0
+m[[1,1]] = 3.0
+m[[2,2]] = 4.0
+# read
+check("mi_00", m[[0,0]], 1.0)
+check("mi_03", m[[0,3]], 2.0)
+check("mi_11", m[[1,1]], 3.0)
+check("mi_22", m[[2,2]], 4.0)
+check("mi_untouched", m[[0,1]], 0.0)
+
+# 3D array
+let t3 = zeros(2, 3, 4)
+t3[[0,1,2]] = 99.0
+check("3d_write", t3[[0,1,2]], 99.0)
+check("3d_zero",  t3[[1,0,0]], 0.0)
+
+# ── AXIS REDUCE ──────────────────────────────────────
+println("--- Axis reduce ---")
+let a = nd.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+
+# sum(axis=0) → [5, 7, 9]
+let s0 = nd.sum(a, 0)
+check("sum_ax0_0", s0[0], 5.0)
+check("sum_ax0_1", s0[1], 7.0)
+check("sum_ax0_2", s0[2], 9.0)
+check("sum_ax0_shape", s0.ndim, 1)
+
+# sum(axis=1) → [6, 15]
+let s1 = nd.sum(a, 1)
+check("sum_ax1_0", s1[0], 6.0)
+check("sum_ax1_1", s1[1], 15.0)
+
+# mean(axis=0) → [2.5, 3.5, 4.5]
+let m0 = nd.mean(a, 0)
+check_near("mean_ax0_0", m0[0], 2.5)
+check_near("mean_ax0_1", m0[1], 3.5)
+
+# max(axis=0) → [4, 5, 6]
+let mx0 = nd.max(a, 0)
+check("max_ax0_0", mx0[0], 4.0)
+check("max_ax0_2", mx0[2], 6.0)
+
+# min(axis=1) → [1, 4]
+let mn1 = nd.min(a, 1)
+check("min_ax1_0", mn1[0], 1.0)
+check("min_ax1_1", mn1[1], 4.0)
+
+# ── BOOLEAN MASKING ──────────────────────────────────
+println("--- Boolean masking ---")
+let v = nd.array([1.0, -2.0, 3.0, -4.0, 5.0])
+
+# nd.gt(v, 0) → mask [1,0,1,0,1]
+let mask = nd.gt(v, 0.0)
+check("gt_0", mask[0], 1.0)
+check("gt_1", mask[1], 0.0)
+check("gt_2", mask[2], 1.0)
+
+# nd.lt, nd.ge, nd.le, nd.eq, nd.ne
+let mask_lt = nd.lt(v, 0.0)
+check("lt_1", mask_lt[1], 1.0)
+check("lt_0", mask_lt[0], 0.0)
+
+let mask_ge = nd.ge(v, 3.0)
+check("ge_2", mask_ge[2], 1.0)
+check("ge_0", mask_ge[0], 0.0)
+
+let mask_eq = nd.eq(v, 3.0)
+check("eq_2", mask_eq[2], 1.0)
+check("eq_0", mask_eq[0], 0.0)
+
+# nd.masked(arr, mask) → elementi selezionati
+let pos = nd.masked(v, mask)
+check("masked_len", pos.size, 3)
+check("masked_0", pos[0], 1.0)
+check("masked_1", pos[1], 3.0)
+check("masked_2", pos[2], 5.0)
+
+# nd.nonzero → indici
+let nz = nd.nonzero(mask)
+check("nonzero_len", len(nz), 3)
+check("nonzero_0", nz[0], 0)
+check("nonzero_1", nz[1], 2)
+
+# ── BROADCASTING AVANZATO ────────────────────────────
+println("--- Broadcasting avanzato ---")
+# [3,1] + [3,3] → [3,3]
+let col = nd.array([[1.0],[2.0],[3.0]])   # shape [3,1]
+let mat = nd.array([[10.0,20.0,30.0],[10.0,20.0,30.0],[10.0,20.0,30.0]])  # [3,3]
+let bc = nd.add(col, mat)
+check("bcast_shape0", bc.shape[0], 3)
+check("bcast_shape1", bc.shape[1], 3)
+check("bcast_00", bc[0][0], 11.0)
+check("bcast_10", bc[1][0], 12.0)
+check("bcast_20", bc[2][0], 13.0)
+check("bcast_01", bc[0][1], 21.0)
+
+# [1,3] + [3,3] → [3,3]
+let row_v = nd.array([[1.0, 2.0, 3.0]])   # shape [1,3]
+let bc2 = nd.add(row_v, mat)
+check("bcast2_00", bc2[0][0], 11.0)
+check("bcast2_01", bc2[0][1], 22.0)
+check("bcast2_10", bc2[1][0], 11.0)
+
+# nd.mul broadcast
+let bc3 = nd.mul(col, mat)
+check("bcast_mul_00", bc3[0][0], 10.0)
+check("bcast_mul_10", bc3[1][0], 20.0)
+check("bcast_mul_20", bc3[2][0], 30.0)
+
+# ── SLICING ──────────────────────────────────────────
+println("--- Slicing 2D ---")
+let big = nd.array([[1.0,2.0,3.0,4.0],[5.0,6.0,7.0,8.0],[9.0,10.0,11.0,12.0]])
+
+# nd.slice(arr, [r0,r1], [c0,c1])
+let sl = nd.slice(big, [0,2], [1,3])
+check("slice_shape0", sl.shape[0], 2)
+check("slice_shape1", sl.shape[1], 2)
+check("slice_00", sl[0][0], 2.0)
+check("slice_01", sl[0][1], 3.0)
+check("slice_10", sl[1][0], 6.0)
+check("slice_11", sl[1][1], 7.0)
+
+# slice prima riga, tutte le colonne
+let sl2 = nd.slice(big, [0,1], [0,4])
+check("slice_row_len", sl2.shape[1], 4)
+check("slice_row_0", sl2[0][0], 1.0)
+check("slice_row_3", sl2[0][3], 4.0)
+
+# slice colonna centrale
+let sl3 = nd.slice(big, [0,3], [1,3])
+check("slice_col_r", sl3.shape[0], 3)
+check("slice_col_c", sl3.shape[1], 2)
+check("slice_col_00", sl3[0][0], 2.0)
+check("slice_col_20", sl3[2][0], 10.0)
+
+println(f"\n=== Nuove feature NdArray: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL PASSED")

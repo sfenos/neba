@@ -715,7 +715,15 @@ impl Vm {
                             let mut n = nd.borrow_mut();
                             let ui = if *i < 0 { (n.shape[0] as i64 + i) as usize } else { *i as usize };
                             if n.ndim() == 1 { n.data.set(ui, val).map_err(VmError::Generic)?; }
-                            else { return Err(VmError::TypeError("NdArray: use nd.set(arr, i, j, val) for multi-dim assignment".into())); }
+                            else { return Err(VmError::TypeError("NdArray 2D+: use nd.set(arr, [i,j], val) or arr[i,j]=val".into())); }
+                        }
+                        // NdArray multi-indice: arr[[i,j]] = val  (indice come Array)
+                        (Value::NdArray(nd), Value::Array(idx_arr)) => {
+                            let indices: Vec<usize> = idx_arr.borrow().iter().map(|v| {
+                                if let Value::Int(n) = v { Ok(*n as usize) }
+                                else { Err(format!("NdArray index must be Int, got {}", v.type_name())) }
+                            }).collect::<Result<_,_>>().map_err(VmError::Generic)?;
+                            nd.borrow_mut().set_nd(&indices, val).map_err(VmError::Generic)?;
                         }
                         (Value::Dict(d), key) => { d.borrow_mut().insert(key.clone(), val); }
                         _ => return Err(VmError::TypeError("index assignment requires Array, TypedArray, NdArray or Dict".into())),
@@ -1124,7 +1132,7 @@ impl Vm {
     }
 
     fn eval_index(&self, obj: Value, idx: Value) -> VmResult {
-        // NdArray: m[i] restituisce la riga i (o scalare se 1D)
+        // NdArray: m[i] → riga (get_axis0), m[[i,j]] → scalare, m[i] su 1D → scalare
         if let Value::NdArray(ref nd) = obj {
             return match &idx {
                 Value::Int(i) => {
@@ -1132,7 +1140,15 @@ impl Vm {
                     let ui = if *i < 0 { (n.shape[0] as i64 + i) as usize } else { *i as usize };
                     n.get_axis0(ui).map_err(VmError::Generic)
                 }
-                _ => Err(VmError::TypeError(format!("NdArray index must be Int, got {}", idx.type_name()))),
+                // m[[i,j]] → scalare (multi-indice)
+                Value::Array(arr) => {
+                    let indices: Vec<usize> = arr.borrow().iter().map(|v| {
+                        if let Value::Int(n) = v { Ok(*n as usize) }
+                        else { Err(format!("NdArray index must be Int, got {}", v.type_name())) }
+                    }).collect::<Result<_,_>>().map_err(VmError::Generic)?;
+                    nd.borrow().get_nd(&indices).map_err(VmError::Generic)
+                }
+                _ => Err(VmError::TypeError(format!("NdArray index must be Int or [i,j,...], got {}", idx.type_name()))),
             };
         }
         match &obj {
