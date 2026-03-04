@@ -442,3 +442,37 @@ Aggiornamento della suite v0 (v0.1.10) — estende i 9 benchmark classici con 6 
 
 ### Roadmap aggiornata
 - v0.1.3 (REPL readline) → spostato a v0.2.3
+
+## v0.2.14 — Ottimizzazioni VM: Rc<Chunk> + lazy IntRange (2026-03-04)
+
+### Motivazione
+I benchmark v1 rivelavano che la bytecode VM era più lenta del tree-walking
+interpreter (A1: 81,383ms vs 67,673ms). Causa: overhead strutturale superiore
+al guadagno del bytecode. Due fix eliminano entrambe le cause radice.
+
+### Fix 1: `FnProto.chunk: Rc<Chunk>`
+- `chunk.rs`: campo `chunk` in `FnProto` cambiato da `Chunk` a `Rc<Chunk>`
+- `compiler.rs`: costruzione FnProto usa `Rc::new(fn_compiler.chunk)`
+- `vm.rs`: 5 siti `Rc::new(proto.chunk.clone())` → `Rc::clone(&proto.chunk)`
+- Elimina il clone dell'intero bytecode (code, constants, names, fn_protos)
+  ad ogni chiamata di funzione. Su fib(30) questo avveniva milioni di volte.
+
+### Fix 2: Lazy integer ranges
+- `value.rs`: aggiunto `Value::IntRange(i64, i64, bool)` — start, end, inclusive
+- `vm.rs / MakeRange`: emette `IntRange` invece di `Vec<Value::Int>`
+- `vm.rs / IntoIter`: passa `IntRange` through senza convertire in Vec
+- `vm.rs / IterNext`: branch `IntRange` — usa aritmetica intera pura, zero alloc
+- `vm.rs / eval_in`: gestisce `x in 0..N` con aritmetica intera
+- Applicato in entrambi i loop: `run_chunk` e `call_value_sync`
+
+### Risultati (release build, hardware: —)
+
+| Benchmark | Prima | Dopo | Speedup |
+|-----------|-------|------|---------|
+| A1 int arith 10M | 81,383 ms | 5,733 ms | **14.2×** |
+| A2 float arith 5M | 24,768 ms | 1,823 ms | **13.6×** |
+| A3 for-range 1M | 2,160 ms | 138 ms | **15.7×** |
+| A4 fib(30) | 8,852 ms | 553 ms | **16.0×** |
+| A5 closure 500k | 2,876 ms | 192 ms | **15.0×** |
+| B2 dot product ×100 | 810 ms | 34 ms | **23.8×** |
+

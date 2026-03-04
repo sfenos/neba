@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::opcode::Op;
 use crate::value::Value;
 
@@ -18,8 +20,8 @@ pub struct FnProto {
     pub arity: usize,
     /// Numero totale di parametri (inclusi quelli con default)
     pub max_arity: usize,
-    /// Bytecode
-    pub chunk: Chunk,
+    /// Bytecode (Rc evita il clone dell'intero chunk ad ogni call — v0.2.14)
+    pub chunk: Rc<Chunk>,
     /// Upvalue catturati
     pub upvalues: Vec<UpvalueDesc>,
     /// Indici nelle costanti del chunk per i valori di default

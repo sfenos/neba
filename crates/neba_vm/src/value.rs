@@ -216,6 +216,8 @@ pub enum Value {
     #[doc(hidden)] __Break,
     #[doc(hidden)] __Continue,
     #[doc(hidden)] __Iter(RcArray, usize),   // array + posizione corrente
+    /// Range intero lazy — evita l'allocazione di Vec<Value> per i for loop (v0.2.14)
+    #[doc(hidden)] IntRange(i64, i64, bool), // start, end, inclusive
 }
 
 impl fmt::Debug for Value {
@@ -245,6 +247,7 @@ impl fmt::Debug for Value {
             Value::__Break      => write!(f, "__Break"),
             Value::__Continue   => write!(f, "__Continue"),
             Value::__Iter(a, i) => write!(f, "__Iter(pos={})", i),
+            Value::IntRange(s, e, inc) => write!(f, "IntRange({}..{}{})", s, e, if *inc {"="} else {""}),
         }
     }
 }
@@ -286,6 +289,7 @@ impl fmt::Display for Value {
             Value::__Break     => write!(f, "<break>"),
             Value::__Continue  => write!(f, "<continue>"),
             Value::__Iter(_, pos) => write!(f, "<iter pos={}>", pos),
+            Value::IntRange(s, e, inc) => write!(f, "{}..{}{}", s, if *inc {"="} else {""}, e),
         }
     }
 }
