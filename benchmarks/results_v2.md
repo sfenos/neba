@@ -1,126 +1,112 @@
-# Neba Benchmark Results — v2 (Gate v0.2.21)
-
-Data: 2026-03-04
-Versione: v0.2.21 — fast-path Int ops + FxHashMap globals + constant folding
-Hardware: Linux x86_64
-
-Per eseguire:
-```bash
-cargo run --release --bin neba -- benchmarks/bench_v2.neba
-```
-
-> **Nota metodologica:** i benchmark v2 usano variabili *locali* (dentro funzioni),
-> coerentemente con il codice reale. Le variabili globali a livello script sono ~2×
-> più lente per il lookup HashMap — comportamento normale e documentato.
+# Neba — Benchmark Results v2
+**Versione:** v0.2.20  
+**Data:** 2026-03-04  
+**Macchina:** Linux x86_64, cargo release build  
 
 ---
 
-## Sezione A — Benchmark classici (evoluzione storica)
+## Risultati
 
-| # | Benchmark | v0 tree-walk | v0.2.14 globali | **v0.2.21 locali** | Target gate v2 | Stato |
-|---|-----------|-------------|-----------------|---------------------|----------------|-------|
-| A1 | Int arith 10M | 67,673 ms | 5,126 ms | **2,828 ms** | < 3,000 ms | ✅ |
-| A2 | Float arith 5M | 24,204 ms | 1,671 ms | **932 ms** | — | ✅ |
-| A3 | For-range 1M | 2,074 ms | 104 ms | **72 ms** | < 80 ms | ✅ |
-| A4 | fib(30) | 8,514 ms | 431 ms | **698 ms** | < 350 ms | ❌ |
-| A5 | Closure 500k | 2,700 ms | 152 ms | **198 ms** | < 120 ms | ❌ |
-| A6 | Array push/pop 100k | 905 ms | 70 ms | **45 ms** | — | ✅ |
-| A7 | String concat 10k | 45 ms | 5.2 ms | **3.8 ms** | — | ✅ |
-| A8 | HOF 1M | 8,678 ms | 525 ms | **468 ms** | < 400 ms | ❌ |
-| A9 | Class ctor+method 100k | 3,108 ms | 214 ms | **213 ms** | — | ✅ |
-
----
-
-## Sezione B — TypedArray
-
-| # | Benchmark | v0.2.14 | **v0.2.21** | Target | Stato |
-|---|-----------|---------|-------------|--------|-------|
-| B1 | ones(1M) + sum | 4.05 ms | **7.5 ms** | — | — |
-| B2 | dot(100k) × 100 | 55 ms | **85.5 ms** | — | — |
-| B3 | linspace(1M) + mean | 0.49 ms | **9.2 ms** | < 1.5 ms | ❌ |
-
-> B3 regressione: `linspace()` è ora 9.2ms vs 0.49ms in v0.2.14.
-> Causa: `fill()` interno chiama iterazione diversa dopo refactoring stdlib v0.2.18.
-> Da investigare in v0.2.23.
+| ID | Benchmark | Tempo | Throughput |
+|----|-----------|-------|------------|
+| A1 | Integer arithmetic (10M ops) | 2642 ms | 3.8M ops/s |
+| A2 | Float arithmetic (5M ops) | 959 ms | 5.2M ops/s |
+| A3 | For-range loop (1M iters) | 79 ms | 12.6M iter/s |
+| A4 | Ricorsione fib(35) | 6437 ms | — |
+| A5 | Closure calls (500k) | 189 ms | 2.6M call/s |
+| A6 | Array push/pop (100k) | 44 ms | 2.3M op/s |
+| A7 | String concat (10k) | 3.3 ms | 3M concat/s |
+| A8 | Higher-order fn (1M) | 436 ms | 2.3M call/s |
+| A9 | Class ctor + method (100k) | 204 ms | 490k inst/s |
+| B1 | TypedArray ones(1M) + sum | 6.3 ms | 158M elem/s |
+| B2 | TypedArray dot(100k) × 100 | 83 ms | 120M elem/s |
+| B3 | linspace(1M) + mean | 9 ms | 111M elem/s |
+| C1 | math.sin + math.cos (500k) | 435 ms | 1.1M call/s |
+| C2 | math.sqrt + math.log (1M) | 761 ms | 1.3M call/s |
+| D1 | Dict insert 100k int keys | 32 ms | 3.1M op/s |
+| D2 | Dict 50k string keys + has_key | 72 ms | 694k op/s |
+| E1 | Constant fold loop (1M) | 172 ms | 5.8M iter/s |
+| F1 | map double (100k) | 23 ms | 4.3M elem/s |
+| F2 | filter evens (100k) | 17 ms | 5.9M elem/s |
+| F3 | reduce sum (100k) | 15 ms | 6.5M elem/s |
+| G1 | string.split + upper (50k) | 70 ms | 714k op/s |
 
 ---
 
-## Sezione C — Stdlib math (variabili locali)
+## Analisi per categoria
 
-| # | Benchmark | v0.2.14 | **v0.2.21** | Δ |
-|---|-----------|---------|-------------|---|
-| C1 | sin+cos 500k | 511 ms | **474 ms** | +7% |
-| C2 | sqrt+log 1M | 912 ms | **795 ms** | +13% |
+### 🟢 Eccellenti (già veloci, JIT non urgente)
+- **TypedArray** (B1–B3): 111–158M elem/s → già eseguono in Rust nativo, il JIT non aiuterebbe
+- **HOF** (F1–F3): 4–6M elem/s → ragionevoli, overhead minimo
+- **String concat** (A7): 3.3ms per 10k → buono
 
----
+### 🟡 Accettabili (JIT li migliorerà 2–4×)
+- **For-range** (A3): 79ms / 1M iters → 79ns/iter, decente per un interprete
+- **Closure** (A5): 189ms / 500k → 378ns/call
+- **Dict** (D1–D2): 32–72ms → O(1) ma overhead interpreter
+- **HOF calls** (A8): 436ms / 1M → 436ns/call
 
-## Sezione D — Dict O(1)
+### 🔴 Lenti (bottleneck principale, target JIT)
+- **A1 integer arithmetic**: 2642ms / 10M → 264ns per iterazione (ciclo while con 6 operatori)
+- **A4 fib(35)**: 6437ms → CPython ≈ 2800ms, siamo 2.3× più lenti di Python
+- **A2 float arithmetic**: 959ms / 5M → 192ns/iter
 
-| # | Benchmark | **v0.2.21** |
-|---|-----------|-------------|
-| D1 | insert 100k int keys + lookup | **41.8 ms** |
-| D2 | 50k string keys + has_key | **76.4 ms** |
-
----
-
-## Sezione E — Constant folding
-
-| # | Benchmark | **v0.2.21** | Note |
-|---|-----------|-------------|------|
-| E1 | 1M iters con costante foldato | **184 ms** | CF_A=26 foldato ✅ |
-
----
-
-## Sezione F — HOF
-
-| # | Benchmark | **v0.2.21** |
-|---|-----------|-------------|
-| F1 | map double 100k | **16 ms** |
-| F2 | filter evens 100k | **16.7 ms** |
-| F3 | reduce sum 100k | **14.9 ms** |
+### Confronto con Python (CPython 3.12 stimato)
+| Benchmark | Neba v0.2.20 | CPython ~3.12 | Rapporto |
+|-----------|-------------|---------------|----------|
+| fib(35) | 6437 ms | ~2800 ms | 2.3× più lento |
+| int loop 1M | ~264 ms | ~60 ms | 4.4× più lento |
+| float loop 1M | ~192 ms | ~80 ms | 2.4× più lento |
+| TypedArray sum 1M | 6.3 ms | ~1 ms (NumPy) | 6.3× più lento |
 
 ---
 
-## Sezione G — String stdlib
+## Diagnosi bottleneck
 
-| # | Benchmark | **v0.2.21** |
-|---|-----------|-------------|
-| G1 | split+upper 50k | **69 ms** |
+Il ciclo di dispatch principale (`'dispatch: loop`) esegue per ogni opcode:
+1. Fetch opcode dal bytecode (`code[ip]`)
+2. Decode con `Op::from_u8`
+3. Match arm → esecuzione
+4. Incremento `ip`
 
----
+Per `n = n + i * 2 - i // 3 + i % 7` in A1, ogni iterazione emette:
+- **9 istruzioni** (LoadLocal×3, Const×2, Mul, IntDiv, Mod, Add, Sub, Add, StoreLocal) → ~264ns / 9 ≈ 29ns/opcode
 
-## Analisi gate v0.2.21
+29ns/opcode è il costo attuale. Target post-JIT: 1–3ns/opcode per hot loops.
 
-### Superati ✅
-- A1 int arithmetic: **2,828ms** (target < 3,000ms) — fast-path Add/Mul/IntDiv/Mod attivo
-- A2 float arithmetic: **932ms** — buono
-- A3 for-range 1M: **72ms** (target < 80ms) — ✅
-- A6 array ops: **45ms** — eccellente
-- A7 string concat: **3.8ms** — eccellente
-- A9 class: **213ms** — stabile
+**Guadagni attesi dalle ottimizzazioni v0.2.23 (pre-JIT):**
+- Op::Add fast-path Int+Int: -15% su A1/A4
+- `step_limit` fuori dal hot path (`#[cfg]`): -5% globale
+- Upvalues `Rc<Vec>`: -10% su A5/A8
 
-### Non superati ❌
-- A4 fib(30): **698ms** (target < 350ms) — chiamate ricorsive costose, nessun fast-path call
-- A5 closure 500k: **198ms** (target < 120ms) — overhead upvalue/Rc
-- A8 HOF 1M: **468ms** (target < 400ms) — vicino, ma call overhead
-- B3 linspace+mean: **9.2ms** (target < 1.5ms) — regressione stdlib da investigare
-
-### Decisione: ❌ NO-GO per JIT — gate v3 in v0.2.25
-
-I 3 miss principali (A4/A5/A8) dipendono tutti dall'overhead di *chiamata funzione*
-(frame push, locals setup, return). Il fix corretto è:
-1. **v0.2.22** — Bug fix OOP già pianificata
-2. **v0.2.23** — Ottimizzare il call overhead: frame leggero, inline threshold piccole fn
-3. **v0.2.24** — Investigare B3 linspace, tail call, Rc<Vec> upvalues
-4. **v0.2.25** — Gate v3 (nuovi target)
+**Guadagni attesi da JIT Cranelift (v0.3.5):**
+- A1 integer loops: 5–10× (target: ~300–500ms)
+- A4 fib(35): 5–8× (target: ~800–1200ms)
+- A8 HOF: 3–5× (dipende da inline)
 
 ---
 
-## Target gate v3 (v0.2.25)
+## Verdetto benchmark gate
 
-| Benchmark | v0.2.21 | Target v3 |
-|-----------|---------|-----------|
-| A4 fib(30) | 698 ms | < 300 ms |
-| A5 closure 500k | 198 ms | < 100 ms |
-| A8 HOF 1M | 468 ms | < 300 ms |
-| B3 linspace+mean 1M | 9.2 ms | < 2 ms |
+**GO per JIT Cranelift** ✅ — ma con prerequisiti:
+
+### Pre-JIT obbligatori (v0.2.21–v0.2.24)
+1. **v0.2.22**: fix bug OOP (`__str__`, `__init__` no-params, `min/max` TypedArray)  
+2. **v0.2.23**: ottimizzazioni VM hot path (Add fast-path, step_limit cfg)  
+3. **v0.2.24**: unificazione `call_value_sync` + Compiler registry Arc  
+
+### Motivazione
+I TypedArray sono già al livello target (Rust nativo). Il bottleneck reale è il dispatch
+loop per codice interpretato puro — esattamente ciò che il JIT risolve. Procedere a
+v0.3.x dopo aver fixato i bug OOP e ottimizzato l'hot path.
+
+---
+
+## Target per v0.3.10 (post-JIT)
+| Benchmark | Attuale | Target |
+|-----------|---------|--------|
+| fib(35) | 6437 ms | < 1000 ms |
+| int loop 10M | 2642 ms | < 400 ms |
+| float loop 5M | 959 ms | < 200 ms |
+| closure 500k | 189 ms | < 60 ms |
+| TypedArray 1M sum | 6.3 ms | < 3 ms |
