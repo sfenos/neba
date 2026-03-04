@@ -520,6 +520,9 @@ impl Vm {
                                     push!(Value::array(v));
                                     continue 'dispatch;
                                 }
+                                // Detect key extractor (arity == 1) vs comparator (arity >= 2)
+                                let is_key_fn = matches!(&cmp, Value::Closure(c) if c.proto.arity == 1)
+                                    || matches!(&cmp, Value::NativeFn(_, _)); // native fns used as key
                                 let items: Vec<Value> = match &arr_val {
                                     Value::Array(a) => a.borrow().clone(),
                                     Value::IntRange(s, e, inc) => {
@@ -529,20 +532,37 @@ impl Vm {
                                     }
                                     _ => return Err(VmError::TypeError(format!("sorted: expected Array or Range, got {}", arr_val.type_name()))),
                                 };
-                                let mut pairs: Vec<(usize, Value)> = items.into_iter().enumerate().collect();
                                 save_ip!();
-                                let mut sort_err: Option<VmError> = None;
-                                pairs.sort_by(|(_, a), (_, b)| {
-                                    if sort_err.is_some() { return std::cmp::Ordering::Equal; }
-                                    match self.call_value_sync(cmp.clone(), vec![a.clone(), b.clone()]) {
-                                        Ok(Value::Int(n))   => n.cmp(&0),
-                                        Ok(Value::Float(f)) => f.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal),
-                                        Ok(v) => if v.is_truthy() { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater },
-                                        Err(e) => { sort_err = Some(e); std::cmp::Ordering::Equal }
+                                if is_key_fn {
+                                    // Key extractor: compute keys once, then sort by key
+                                    let mut keyed: Vec<(Value, Value)> = Vec::with_capacity(items.len());
+                                    for item in items {
+                                        let k = self.call_value_sync(cmp.clone(), vec![item.clone()])?;
+                                        keyed.push((k, item));
                                     }
-                                });
-                                if let Some(e) = sort_err { return Err(e); }
-                                push!(Value::array(pairs.into_iter().map(|(_, v)| v).collect()));
+                                    let mut sort_err: Option<VmError> = None;
+                                    keyed.sort_by(|(ka, _), (kb, _)| {
+                                        if sort_err.is_some() { return std::cmp::Ordering::Equal; }
+                                        ka.partial_cmp(kb).unwrap_or(std::cmp::Ordering::Equal)
+                                    });
+                                    if let Some(e) = sort_err { return Err(e); }
+                                    push!(Value::array(keyed.into_iter().map(|(_, v)| v).collect()));
+                                } else {
+                                    // Comparator: fn(a, b) -> Int
+                                    let mut pairs: Vec<(usize, Value)> = items.into_iter().enumerate().collect();
+                                    let mut sort_err: Option<VmError> = None;
+                                    pairs.sort_by(|(_, a), (_, b)| {
+                                        if sort_err.is_some() { return std::cmp::Ordering::Equal; }
+                                        match self.call_value_sync(cmp.clone(), vec![a.clone(), b.clone()]) {
+                                            Ok(Value::Int(n))   => n.cmp(&0),
+                                            Ok(Value::Float(f)) => f.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal),
+                                            Ok(v) => if v.is_truthy() { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater },
+                                            Err(e) => { sort_err = Some(e); std::cmp::Ordering::Equal }
+                                        }
+                                    });
+                                    if let Some(e) = sort_err { return Err(e); }
+                                    push!(Value::array(pairs.into_iter().map(|(_, v)| v).collect()));
+                                }
                                 continue 'dispatch;
                             }
                             // find(array, fn) → first matching element or None

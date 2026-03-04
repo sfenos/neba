@@ -65,6 +65,10 @@ pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     reg!("find_index",  neba_find_arr);  // VM intercepts before stdlib call
     // Repr (v0.2.31)
     reg!("repr",        neba_repr);
+    // Random globals (v0.2.33)
+    reg!("choice",      math_choice);   // random.choice globale
+    reg!("shuffle",     math_shuffle);  // random.shuffle globale
+    reg!("sample",      math_sample);   // random.sample globale
     // Dict helpers (v0.2.30)
     reg!("merge",    neba_merge_dict);
     reg!("dict_get", neba_dict_get);
@@ -328,16 +332,21 @@ fn neba_sum(args: &[Value]) -> Result<Value, String> {
 
 /// zip(a, b) → Array di [a[i], b[i]]
 fn neba_zip(args: &[Value]) -> Result<Value, String> {
-    match args {
-        [Value::Array(a), Value::Array(b)] => {
-            let a = a.borrow(); let b = b.borrow();
-            let result = a.iter().zip(b.iter())
-                .map(|(x, y)| Value::array(vec![x.clone(), y.clone()]))
-                .collect();
-            Ok(Value::array(result))
-        }
-        _ => Err("zip(a, b) requires 2 Arrays".into()),
+    // zip(a, b, c, ...) — supports 2+ arrays, truncates to shortest
+    if args.len() < 2 {
+        return Err("zip() requires at least 2 arguments".into());
     }
+    let arrays: Vec<std::cell::Ref<Vec<Value>>> = args.iter().map(|a| {
+        match a {
+            Value::Array(a) => Ok(a.borrow()),
+            _ => Err(format!("zip(): all arguments must be Arrays, got {}", a.type_name())),
+        }
+    }).collect::<Result<_, _>>()?;
+    let min_len = arrays.iter().map(|a| a.len()).min().unwrap_or(0);
+    let result: Vec<Value> = (0..min_len).map(|i| {
+        Value::array(arrays.iter().map(|a| a[i].clone()).collect())
+    }).collect();
+    Ok(Value::array(result))
 }
 
 /// enumerate(array, start=0) → Array di [index, value]
@@ -1390,6 +1399,12 @@ fn get_str<'a>(v: &'a Value, ctx: &str) -> Result<&'a str, String> {
 fn str_split(args: &[Value]) -> Result<Value, String> {
     match args {
         [Value::Str(s)] => {
+            // No separator → split into individual characters (like Python list(s))
+            let parts: Vec<Value> = s.chars().map(|c| Value::str(c.to_string())).collect();
+            Ok(Value::array(parts))
+        }
+        [Value::Str(s), Value::None] => {
+            // explicit None separator → split by whitespace
             let parts: Vec<Value> = s.split_whitespace().map(|p| Value::str(p)).collect();
             Ok(Value::array(parts))
         }
@@ -1549,18 +1564,63 @@ fn str_is_empty(args: &[Value]) -> Result<Value, String> {
 }
 /// string.format(template, dict_or_values...) — sostituisce {key} con valori dal dict
 fn str_format(args: &[Value]) -> Result<Value, String> {
-    match args {
-        [Value::Str(tmpl), Value::Dict(d)] => {
-            let mut result = tmpl.as_ref().clone();
-            for (k, v) in d.borrow().iter() {
-                if let Value::Str(key) = k {
-                    let placeholder = format!("{{{}}}", key.as_str());
-                    result = result.replace(&placeholder, &v.to_string());
+    match args.first() {
+        Some(Value::Str(tmpl)) => {
+            let template = tmpl.as_ref().clone();
+            // Case 1: string.format(tmpl, dict) — named placeholders {key}
+            if args.len() == 2 {
+                if let Value::Dict(d) = &args[1] {
+                    let mut result = template.clone();
+                    for (k, v) in d.borrow().iter() {
+                        if let Value::Str(key) = k {
+                            let placeholder = format!("{{{}}}", key.as_str());
+                            result = result.replace(&placeholder, &v.to_string());
+                        }
+                    }
+                    return Ok(Value::str(result));
+                }
+            }
+            // Case 2: string.format(tmpl, arg0, arg1, ...) — positional {} or {0},{1}
+            let positional: Vec<&Value> = args[1..].iter().collect();
+            let mut result = String::new();
+            let chars: Vec<char> = template.chars().collect();
+            let mut i = 0;
+            let mut auto_idx: usize = 0;
+            while i < chars.len() {
+                if chars[i] == '{' {
+                    // find closing }
+                    let start = i + 1;
+                    let mut end = start;
+                    while end < chars.len() && chars[end] != '}' { end += 1; }
+                    if end >= chars.len() {
+                        result.push('{');
+                        i += 1;
+                        continue;
+                    }
+                    let inner: String = chars[start..end].iter().collect();
+                    let idx = if inner.is_empty() {
+                        let idx = auto_idx;
+                        auto_idx += 1;
+                        idx
+                    } else {
+                        inner.parse::<usize>().unwrap_or(auto_idx)
+                    };
+                    if let Some(v) = positional.get(idx) {
+                        result.push_str(&v.to_string());
+                    } else {
+                        result.push('{');
+                        result.push_str(&inner);
+                        result.push('}');
+                    }
+                    i = end + 1;
+                } else {
+                    result.push(chars[i]);
+                    i += 1;
                 }
             }
             Ok(Value::str(result))
         }
-        _ => Err("string.format(template, dict) requires Str and Dict".into()),
+        _ => Err("string.format(template, ...) requires Str as first argument".into()),
     }
 }
 
