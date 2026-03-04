@@ -433,6 +433,44 @@ impl Vm {
                                 push!(acc);
                                 continue 'dispatch;
                             }
+                            // str(v) → chiama __str__ se è un'Instance
+                            "str" => {
+                                let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
+                                let v = args.into_iter().next().unwrap_or(Value::None);
+                                save_ip!();
+                                let s = self.value_display_string(v)?;
+                                push!(Value::str(s));
+                                continue 'dispatch;
+                            }
+                            // sorted(arr, cmp) — comparatore custom
+                            "sorted" if argc == 2 => {
+                                let args: Vec<Value> = self.stack.drain(fn_idx..).skip(1).collect();
+                                let (arr_val, cmp) = (args[0].clone(), args[1].clone());
+                                let items: Vec<Value> = match &arr_val {
+                                    Value::Array(a) => a.borrow().clone(),
+                                    Value::IntRange(s, e, inc) => {
+                                        let (s, e, inc) = (*s, *e, *inc);
+                                        if inc { (s..=e).map(Value::Int).collect() }
+                                        else   { (s..e).map(Value::Int).collect() }
+                                    }
+                                    _ => return Err(VmError::TypeError(format!("sorted: expected Array or Range, got {}", arr_val.type_name()))),
+                                };
+                                let mut pairs: Vec<(usize, Value)> = items.into_iter().enumerate().collect();
+                                save_ip!();
+                                let mut sort_err: Option<VmError> = None;
+                                pairs.sort_by(|(_, a), (_, b)| {
+                                    if sort_err.is_some() { return std::cmp::Ordering::Equal; }
+                                    match self.call_value_sync(cmp.clone(), vec![a.clone(), b.clone()]) {
+                                        Ok(Value::Int(n))   => n.cmp(&0),
+                                        Ok(Value::Float(f)) => f.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal),
+                                        Ok(v) => if v.is_truthy() { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater },
+                                        Err(e) => { sort_err = Some(e); std::cmp::Ordering::Equal }
+                                    }
+                                });
+                                if let Some(e) = sort_err { return Err(e); }
+                                push!(Value::array(pairs.into_iter().map(|(_, v)| v).collect()));
+                                continue 'dispatch;
+                            }
                             _ => {}
                         }
                     }
@@ -716,14 +754,34 @@ impl Vm {
 
                 Op::BuildStr => {
                     let n = read_u16!() as usize; let start = self.stack.len() - n;
-                    let parts: Vec<String> = self.stack.drain(start..).map(|v| v.to_string()).collect();
+                    let vals: Vec<Value> = self.stack.drain(start..).collect();
+                    let mut parts = Vec::with_capacity(vals.len());
+                    for val in vals {
+                        parts.push(self.value_display_string(val)?);
+                    }
                     push!(Value::str(parts.join("")));
                 }
-                Op::ToStr => { let v = pop!(); push!(Value::str(v.to_string())); }
+                Op::ToStr => {
+                    let v = pop!();
+                    let s = self.value_display_string(v)?;
+                    push!(Value::str(s));
+                }
                 Op::Nop   => {}
                 Op::Halt  => { return Ok(self.stack.pop().unwrap_or(Value::None)); }
             }
         }
+    }
+
+    /// Converte un Value in stringa per display, chiamando `__str__` se è un'Instance.
+    fn value_display_string(&mut self, val: Value) -> VmResult<String> {
+        if let Value::Instance(ref inst) = val {
+            let str_method = inst.borrow().fields.get("__str__").cloned();
+            if let Some(method) = str_method {
+                let result = self.call_value_sync(method, vec![val])?;
+                return Ok(result.to_string());
+            }
+        }
+        Ok(val.to_string())
     }
 
     fn build_trace(&self) -> String {

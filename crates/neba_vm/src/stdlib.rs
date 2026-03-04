@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use rustc_hash::FxHashMap;
-use crate::value::Value;
-
+use crate::value::{Value, TypedArrayData, Dtype};
 pub fn register_globals(globals: &mut FxHashMap<String, (Value, bool)>) {
     macro_rules! reg {
         ($name:expr, $fn:expr) => {
@@ -136,20 +135,46 @@ fn neba_abs(args: &[Value]) -> Result<Value, String> {
 }
 fn neba_min(args: &[Value]) -> Result<Value, String> {
     let items: Vec<Value> = if args.len() == 1 {
-        if let Some(Value::Array(a)) = args.first() {
-            let b = a.borrow(); if b.is_empty() { return Err("min() of empty array".into()); }
-            b.clone()
-        } else { args.to_vec() }
+        match args.first() {
+            Some(Value::Array(a)) => {
+                let b = a.borrow(); if b.is_empty() { return Err("min() of empty array".into()); }
+                b.clone()
+            }
+            Some(Value::TypedArray(ta)) => {
+                let b = ta.borrow();
+                if b.is_empty() { return Err("min() of empty TypedArray".into()); }
+                return match &*b {
+                    TypedArrayData::Float64(v) => Ok(Value::Float(v.iter().cloned().fold(f64::INFINITY, f64::min))),
+                    TypedArrayData::Float32(v) => Ok(Value::Float(v.iter().cloned().fold(f32::INFINITY, f32::min) as f64)),
+                    TypedArrayData::Int64(v)   => Ok(Value::Int(*v.iter().min().unwrap())),
+                    TypedArrayData::Int32(v)   => Ok(Value::Int(*v.iter().min().unwrap() as i64)),
+                };
+            }
+            _ => args.to_vec()
+        }
     } else { args.to_vec() };
     items.into_iter().reduce(|a, b| if a <= b { a } else { b })
         .ok_or_else(|| "min() requires at least 1 argument".into())
 }
 fn neba_max(args: &[Value]) -> Result<Value, String> {
     let items: Vec<Value> = if args.len() == 1 {
-        if let Some(Value::Array(a)) = args.first() {
-            let b = a.borrow(); if b.is_empty() { return Err("max() of empty array".into()); }
-            b.clone()
-        } else { args.to_vec() }
+        match args.first() {
+            Some(Value::Array(a)) => {
+                let b = a.borrow(); if b.is_empty() { return Err("max() of empty array".into()); }
+                b.clone()
+            }
+            Some(Value::TypedArray(ta)) => {
+                let b = ta.borrow();
+                if b.is_empty() { return Err("max() of empty TypedArray".into()); }
+                return match &*b {
+                    TypedArrayData::Float64(v) => Ok(Value::Float(v.iter().cloned().fold(f64::NEG_INFINITY, f64::max))),
+                    TypedArrayData::Float32(v) => Ok(Value::Float(v.iter().cloned().fold(f32::NEG_INFINITY, f32::max) as f64)),
+                    TypedArrayData::Int64(v)   => Ok(Value::Int(*v.iter().max().unwrap())),
+                    TypedArrayData::Int32(v)   => Ok(Value::Int(*v.iter().max().unwrap() as i64)),
+                };
+            }
+            _ => args.to_vec()
+        }
     } else { args.to_vec() };
     items.into_iter().reduce(|a, b| if a >= b { a } else { b })
         .ok_or_else(|| "max() requires at least 1 argument".into())
@@ -500,7 +525,7 @@ fn neba_join(args: &[Value]) -> Result<Value, String> {
 
 // ── TypedArray functions (v0.2.6 / v0.2.7) ───────────────────────────────
 
-use crate::value::{TypedArrayData, Dtype};
+
 
 /// Registra le funzioni TypedArray nei globals (chiamata da register_globals)
 pub fn register_typed_array_globals(globals: &mut FxHashMap<String, (Value, bool)>) {

@@ -1,0 +1,70 @@
+var ok = 0
+var fail = 0
+fn check(label, got, exp)
+    if got == exp
+        ok += 1
+    else
+        fail += 1
+        println(f"FAIL [{label}]: got={got} exp={exp}")
+
+# __init__ senza parametri
+class Counter
+    count: Int = 0
+    fn __init__(self)
+        self.count = 99
+    fn get(self)
+        return self.count
+check("init_noparams", Counter().get(), 99)
+
+# __str__ via str()
+class Pt
+    x: Int = 0
+    y: Int = 0
+    fn __init__(self, x, y)
+        self.x = x
+        self.y = y
+    fn __str__(self)
+        return f"({self.x},{self.y})"
+let p = Pt(3, 4)
+check("str_via_str()", str(p), "(3,4)")
+check("str_via_fstring", f"{p}", "(3,4)")
+
+# min/max su TypedArray Float64
+let tf = zeros(4)
+tf[0] = 9.0
+tf[1] = 2.0
+tf[2] = 7.0
+tf[3] = 1.0
+check("min_typedarray_f64", min(tf), 1.0)
+check("max_typedarray_f64", max(tf), 9.0)
+
+# min/max su TypedArray Int64
+let ti = zeros(3, "Int64")
+ti[0] = 5
+ti[1] = 1
+ti[2] = 8
+check("min_typedarray_i64", min(ti), 1)
+check("max_typedarray_i64", max(ti), 8)
+
+# sorted con comparatore custom (desc)
+let arr = [5, 2, 8, 1, 9, 3]
+fn desc(a, b)
+    return b - a
+let s_asc = sorted(arr)
+let s_desc = sorted(arr, desc)
+check("sorted_asc_first", s_asc[0], 1)
+check("sorted_asc_last",  s_asc[5], 9)
+check("sorted_desc_first", s_desc[0], 9)
+check("sorted_desc_last",  s_desc[5], 1)
+
+# sorted con comparatore per stringhe
+let words = ["banana", "apple", "cherry", "date"]
+fn by_len(a, b)
+    return len(a) - len(b)
+let by_length = sorted(words, by_len)
+check("sorted_by_len_first", by_length[0], "date")
+check("sorted_by_len_last",  len(by_length[3]), 6)
+
+println(f"\n=== v0.2.22 results: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL TESTS PASSED")

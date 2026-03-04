@@ -577,6 +577,14 @@ impl Compiler {
                         format!("named arguments (kwargs) not yet supported — use positional arguments")
                     ));
                 }
+                // str(x) → compila x + Op::ToStr (chiama __str__ se Instance)
+                if let ExprKind::Ident(fname) = &callee.inner {
+                    if fname == "str" && args.len() == 1 && kwargs.is_empty() {
+                        self.compile_expr(&args[0])?;
+                        self.chunk.emit(Op::ToStr, line);
+                        return Ok(());
+                    }
+                }
                 if let ExprKind::Field { object, field } = &callee.inner {
                     self.compile_expr(object)?;
                     for a in args { self.compile_expr(a)?; }
@@ -1354,11 +1362,14 @@ impl Compiler {
             }
         }
 
-        // Se esiste __init__, chiamalo con i parametri del costruttore.
+        // Se esiste __init__, chiamalo (anche se non ha parametri extra oltre a self).
         // A questo punto lo stack è: [arg0, arg1, ..., argN, instance]
         // I locali 0..N contengono i parametri. L'istanza è TOS.
-        if !init_params.is_empty() {
-            // Dup instance come receiver
+        let has_init = methods.iter().any(|m|
+            matches!(&m.inner, StmtKind::Fn { name, .. } if name == "__init__")
+        );
+        if has_init {
+            // Dup instance come receiver (self)
             ctor.chunk.emit(Op::Dup, ctor_line);
             // Carica ciascun parametro dallo slot locale corretto
             for (i, _) in init_params.iter().enumerate() {
