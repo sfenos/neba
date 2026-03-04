@@ -151,7 +151,8 @@ pub type RcTypedArray = Rc<RefCell<TypedArrayData>>;
 #[derive(Clone)]
 pub struct Closure {
     pub proto: Rc<FnProto>,
-    pub upvalues: Vec<Upvalue>,
+    /// Rc<Vec> invece di Vec: clone O(1) invece di O(n_upvalues) a ogni chiamata
+    pub upvalues: Rc<Vec<Upvalue>>,
 }
 
 impl fmt::Debug for Closure {

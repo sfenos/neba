@@ -1397,7 +1397,7 @@ impl Compiler {
         };
         let closure = Value::Closure(std::rc::Rc::new(crate::value::Closure {
             proto:    std::rc::Rc::new(proto),
-                                                      upvalues: Vec::new(),
+            upvalues: std::rc::Rc::new(Vec::new()),
         }));
         let idx = self.chunk.add_const(closure);
         self.chunk.emit(Op::Const, line);

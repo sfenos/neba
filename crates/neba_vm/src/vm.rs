@@ -114,7 +114,7 @@ struct CallFrame {
     ip:       usize,
     base:     usize,
     name:     String,
-    upvalues: Vec<Upvalue>,
+    upvalues: Rc<Vec<Upvalue>>,
 }
 
 // ── VM ────────────────────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ impl Vm {
         let rc_chunk = Rc::new(chunk);
         self.frames.push(CallFrame {
             chunk: rc_chunk, ip: 0, base: 0,
-            name: "<script>".to_string(), upvalues: Vec::new(),
+            name: "<script>".to_string(), upvalues: Rc::new(Vec::new()),
         });
 
         let mut ip:   usize = 0;
@@ -185,6 +185,7 @@ impl Vm {
         let mut step_count: u64 = 0;
 
         'dispatch: loop {
+            #[cfg(debug_assertions)]
             if self.step_limit > 0 {
                 step_count += 1;
                 if step_count > self.step_limit {
@@ -194,6 +195,8 @@ impl Vm {
                     return Err(VmError::Generic(format!("step limit {} exceeded (infinite loop?)", self.step_limit)));
                 }
             }
+            #[cfg(not(debug_assertions))]
+            let _ = step_count;
 
             let op_byte = chunk!().code[ip];
             let op = Op::from_u8(op_byte)
@@ -337,12 +340,54 @@ impl Vm {
                     });
                 }
 
-                Op::Eq => { let r = pop!(); let l = pop!(); push!(Value::Bool(l == r)); }
-                Op::Ne => { let r = pop!(); let l = pop!(); push!(Value::Bool(l != r)); }
-                Op::Lt => { let r = pop!(); let l = pop!(); push!(Value::Bool(l <  r)); }
-                Op::Le => { let r = pop!(); let l = pop!(); push!(Value::Bool(l <= r)); }
-                Op::Gt => { let r = pop!(); let l = pop!(); push!(Value::Bool(l >  r)); }
-                Op::Ge => { let r = pop!(); let l = pop!(); push!(Value::Bool(l >= r)); }
+                Op::Eq => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            let res = a == b; self.stack.truncate(top-2); self.stack.push(Value::Bool(res));
+                        } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l == r)); }
+                    } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l == r)); }
+                }
+                Op::Ne => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            let res = a != b; self.stack.truncate(top-2); self.stack.push(Value::Bool(res));
+                        } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l != r)); }
+                    } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l != r)); }
+                }
+                Op::Lt => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            let res = a < b; self.stack.truncate(top-2); self.stack.push(Value::Bool(res));
+                        } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l < r)); }
+                    } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l < r)); }
+                }
+                Op::Le => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            let res = a <= b; self.stack.truncate(top-2); self.stack.push(Value::Bool(res));
+                        } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l <= r)); }
+                    } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l <= r)); }
+                }
+                Op::Gt => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            let res = a > b; self.stack.truncate(top-2); self.stack.push(Value::Bool(res));
+                        } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l > r)); }
+                    } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l > r)); }
+                }
+                Op::Ge => {
+                    let top = self.stack.len();
+                    if top >= 2 {
+                        if let (Value::Int(a), Value::Int(b)) = (&self.stack[top-2], &self.stack[top-1]) {
+                            let res = a >= b; self.stack.truncate(top-2); self.stack.push(Value::Bool(res));
+                        } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l >= r)); }
+                    } else { let r = pop!(); let l = pop!(); push!(Value::Bool(l >= r)); }
+                }
 
                 Op::Not => { let v = pop!(); push!(Value::Bool(!v.is_truthy())); }
 
@@ -363,7 +408,7 @@ impl Vm {
                             upvalues.push(Upvalue { value: Rc::new(RefCell::new(v)) });
                         }
                     }
-                    push!(Value::Closure(Rc::new(Closure { proto, upvalues })));
+                    push!(Value::Closure(Rc::new(Closure { proto, upvalues: Rc::new(upvalues) })));
                 }
 
                 Op::Call => {
@@ -496,7 +541,7 @@ impl Vm {
                             self.frames.push(CallFrame {
                                 chunk: Rc::clone(&proto.chunk), ip: 0,
                                 base: new_base, name: proto.name.clone(),
-                                upvalues: c.upvalues.clone(),
+                                upvalues: Rc::clone(&c.upvalues),
                             });
                             load_frame!();
                         }
@@ -559,7 +604,7 @@ impl Vm {
                             self.frames.push(CallFrame {
                                 chunk: Rc::clone(&proto.chunk), ip: 0,
                                 base: new_base, name: proto.name.clone(),
-                                upvalues: c.upvalues.clone(),
+                                upvalues: Rc::clone(&c.upvalues),
                             });
                             load_frame!();
                         }
@@ -997,7 +1042,7 @@ impl Vm {
                 self.frames.push(CallFrame {
                     chunk: Rc::clone(&proto.chunk), ip: 0,
                     base: new_base, name: proto.name.clone(),
-                    upvalues: c.upvalues.clone(),
+                    upvalues: Rc::clone(&c.upvalues),
                 });
 
                 let mut ip:   usize = 0;
@@ -1067,7 +1112,7 @@ impl Vm {
                             let proto = Rc::new(cc!().fn_protos[i].clone());
                             let mut upvalues = Vec::with_capacity(nu);
                             if nu > 0 { let s = self.stack.len()-nu; for v in self.stack.drain(s..) { upvalues.push(Upvalue { value: Rc::new(RefCell::new(v)) }); } }
-                            ps!(Value::Closure(Rc::new(Closure { proto, upvalues })));
+                            ps!(Value::Closure(Rc::new(Closure { proto, upvalues: Rc::new(upvalues) })));
                         }
                         Op::Call => {
                             let argc = ru8!() as usize;
@@ -1082,7 +1127,7 @@ impl Vm {
                                     for i2 in 0..miss { let di = p.defaults.len().saturating_sub(miss-i2); ps!(p.defaults.get(di).cloned().unwrap_or(Value::None)); }
                                     let nb = fi + 1; self.stack[fi] = Value::None;
                                     sip!();
-                                    self.frames.push(CallFrame { chunk: Rc::clone(&p.chunk), ip: 0, base: nb, name: p.name.clone(), upvalues: c2.upvalues.clone() });
+                                    self.frames.push(CallFrame { chunk: Rc::clone(&p.chunk), ip: 0, base: nb, name: p.name.clone(), upvalues: Rc::clone(&c2.upvalues) });
                                     lf!();
                                 }
                                 other => return Err(VmError::NotCallable(other.type_name().to_string())),
@@ -1226,7 +1271,7 @@ impl Vm {
                                     for i2 in 0..miss { let di = p.defaults.len().saturating_sub(miss-i2); ps!(p.defaults.get(di).cloned().unwrap_or(Value::None)); }
                                     let nb = oi+1; self.stack[oi] = Value::None;
                                     sip!();
-                                    self.frames.push(CallFrame { chunk: Rc::clone(&p.chunk), ip: 0, base: nb, name: p.name.clone(), upvalues: c2.upvalues.clone() });
+                                    self.frames.push(CallFrame { chunk: Rc::clone(&p.chunk), ip: 0, base: nb, name: p.name.clone(), upvalues: Rc::clone(&c2.upvalues) });
                                     lf!();
                                 }
                                 Value::NativeFn(_, f) => {
