@@ -2459,12 +2459,19 @@ fn nd_hstack(args: &[Value]) -> Result<Value, String> {
         Value::NdArray(nd) => Ok(nd.borrow().clone()),
         _ => Err(format!("nd.hstack: expected NdArray, got {}", v.type_name())),
     }).collect::<Result<_,_>>()?;
-    let rows = nds[0].shape.get(0).copied().unwrap_or(1);
-    let total_cols: usize = nds.iter().map(|nd| nd.shape.get(1).copied().unwrap_or(nd.size())).sum();
+    if nds.iter().all(|nd| nd.ndim() == 1) {
+        let mut out_data: Vec<f64> = Vec::new();
+        for nd in &nds { for i in 0..nd.size() { out_data.push(nd.data.get(i).unwrap().as_float().unwrap_or(0.0)); } }
+        let n = out_data.len();
+        return Ok(Value::nd_array(Nd { shape: vec![n], data: TypedArrayData::Float64(out_data) }));
+    }
+    let rows = nds[0].shape[0];
+    for nd in &nds { if nd.shape[0] != rows { return Err("nd.hstack: rows mismatch".into()); } }
+    let total_cols: usize = nds.iter().map(|nd| nd.shape.get(1).copied().unwrap_or(1)).sum();
     let mut out = Nd::zeros(vec![rows, total_cols], Dtype::Float64);
     let mut col_offset = 0;
     for nd in &nds {
-        let cols = nd.shape.get(1).copied().unwrap_or(nd.size());
+        let cols = nd.shape.get(1).copied().unwrap_or(1);
         for r in 0..rows {
             for c in 0..cols {
                 let v = nd.data.get(r * cols + c).unwrap();
@@ -2476,7 +2483,7 @@ fn nd_hstack(args: &[Value]) -> Result<Value, String> {
     Ok(Value::nd_array(out))
 }
 
-// nd_vstack(list_of_arrays) — concatena verticalmente (righe)
+// nd_vstack -- 1D arrays diventano righe, 2D concatena verticalmente
 fn nd_vstack(args: &[Value]) -> Result<Value, String> {
     let arrays = match args.first() {
         Some(Value::Array(a)) => a.borrow().clone(),
@@ -2487,12 +2494,14 @@ fn nd_vstack(args: &[Value]) -> Result<Value, String> {
         Value::NdArray(nd) => Ok(nd.borrow().clone()),
         _ => Err(format!("nd.vstack: expected NdArray, got {}", v.type_name())),
     }).collect::<Result<_,_>>()?;
-    let cols = nds[0].shape.get(1).copied().unwrap_or(nds[0].size());
-    let total_rows: usize = nds.iter().map(|nd| nd.shape.get(0).copied().unwrap_or(1)).sum();
-    let mut out_data: Vec<f64> = Vec::with_capacity(total_rows * cols);
+    let cols = if nds[0].ndim() == 1 { nds[0].size() } else { nds[0].shape[1] };
     for nd in &nds {
-        for i in 0..nd.size() { out_data.push(nd.data.get(i).unwrap().as_float().unwrap_or(0.0)); }
+        let c = if nd.ndim() == 1 { nd.size() } else { nd.shape[1] };
+        if c != cols { return Err(format!("nd.vstack: column mismatch {} vs {}", cols, c)); }
     }
+    let total_rows: usize = nds.iter().map(|nd| if nd.ndim() == 1 { 1 } else { nd.shape[0] }).sum();
+    let mut out_data: Vec<f64> = Vec::with_capacity(total_rows * cols);
+    for nd in &nds { for i in 0..nd.size() { out_data.push(nd.data.get(i).unwrap().as_float().unwrap_or(0.0)); } }
     Ok(Value::nd_array(Nd { shape: vec![total_rows, cols], data: TypedArrayData::Float64(out_data) }))
 }
 

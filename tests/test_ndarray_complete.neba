@@ -1,0 +1,278 @@
+println("=== TEST NDARRAY COMPLETO ===")
+var ok = 0
+var fail = 0
+var skip = 0
+
+fn check(label, got, exp)
+    if got == exp
+        ok += 1
+    else
+        fail += 1
+        println(f"  FAIL [{label}]: got={got}  exp={exp}")
+
+fn check_near(label, got, exp)
+    var diff = got - exp
+    if diff < 0.0
+        diff = -diff
+    if diff < 0.0001
+        ok += 1
+    else
+        fail += 1
+        println(f"  FAIL [{label}]: got={got}  exp={exp}")
+
+# ── CREAZIONE ─────────────────────────────────────
+println("--- Creazione ---")
+let z2 = zeros(3, 4)
+check("zeros_r", z2.shape[0], 3)
+check("zeros_c", z2.shape[1], 4)
+check("zeros_ndim", z2.ndim, 2)
+check("zeros_size", z2.size, 12)
+
+let o2 = ones(2, 5)
+check("ones_r", o2.shape[0], 2)
+check("ones_c", o2.shape[1], 5)
+check("ones_val", nd.get(o2, [0,0]), 1.0)
+
+let z3 = zeros(2, 3, 4)
+check("zeros_3d_ndim", z3.ndim, 3)
+check("zeros_3d_size", z3.size, 24)
+
+let eye3 = nd.eye(3)
+check("eye_diag", nd.get(eye3, [1,1]), 1.0)
+check("eye_off",  nd.get(eye3, [0,1]), 0.0)
+
+let arr2d = nd.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+check("array2d_r", arr2d.shape[0], 2)
+check("array2d_c", arr2d.shape[1], 3)
+
+# ── INDEXING ──────────────────────────────────────
+println("--- Indexing ---")
+check("idx_row0_0", arr2d[0][0], 1.0)
+check("idx_row0_2", arr2d[0][2], 3.0)
+check("idx_row1_1", arr2d[1][1], 5.0)
+check("idx_row1_2", arr2d[1][2], 6.0)
+
+# nd.get multi-indice
+check("get_0_0", nd.get(arr2d, [0,0]), 1.0)
+check("get_1_2", nd.get(arr2d, [1,2]), 6.0)
+
+# ── SET ───────────────────────────────────────────
+println("--- Set/Mutazione ---")
+let m = zeros(3, 3)
+nd.set(m, [0,0], 9.0)
+nd.set(m, [1,1], 5.0)
+nd.set(m, [2,2], 1.0)
+check("set_00", nd.get(m, [0,0]), 9.0)
+check("set_11", nd.get(m, [1,1]), 5.0)
+check("set_22", nd.get(m, [2,2]), 1.0)
+check("set_untouched", nd.get(m, [0,1]), 0.0)
+
+# m[i][j] = val (assegnazione via indexing)
+# NOTA: m[i] restituisce una COPIA della riga, non una view
+# quindi m[i][j] = val NON modifica m
+let row = m[0]
+row[0] = 99.0
+check("row_copy_not_view", nd.get(m, [0,0]), 9.0)   # m non modificato
+
+# ── OPERATORI ARITMETICI ──────────────────────────
+println("--- Operatori aritmetici ---")
+let a = nd.array([[1.0, 2.0], [3.0, 4.0]])
+let b = nd.array([[10.0, 20.0], [30.0, 40.0]])
+
+let add = a + b
+check("add_00", add[0][0], 11.0)
+check("add_11", add[1][1], 44.0)
+
+let sub = b - a
+check("sub_00", sub[0][0], 9.0)
+check("sub_11", sub[1][1], 36.0)
+
+let mul = a * b
+check("mul_00", mul[0][0], 10.0)
+check("mul_11", mul[1][1], 160.0)
+
+let dv = b / a
+check("div_00", dv[0][0], 10.0)
+check("div_11", dv[1][1], 10.0)
+
+# scalar broadcast
+let s2 = a * 3.0
+check("scalar_mul_00", s2[0][0], 3.0)
+check("scalar_mul_11", s2[1][1], 12.0)
+
+let s3 = 2.0 * a
+check("left_scalar_00", s3[0][0], 2.0)
+check("left_scalar_11", s3[1][1], 8.0)
+
+let s4 = a + 10.0
+check("scalar_add", s4[0][0], 11.0)
+
+let s5 = a - 1.0
+check("scalar_sub", s5[0][0], 0.0)
+
+# ── FIELD ACCESS ──────────────────────────────────
+println("--- Field access ---")
+check("field_ndim", arr2d.ndim, 2)
+check("field_size", arr2d.size, 6)
+check("field_shape0", arr2d.shape[0], 2)
+check("field_shape1", arr2d.shape[1], 3)
+check("field_dtype", arr2d.dtype, "Float64")
+
+let t = arr2d.T
+check("T_shape0", t.shape[0], 3)
+check("T_shape1", t.shape[1], 2)
+check("T_00", t[0][0], 1.0)
+check("T_10", t[1][0], 2.0)
+check("T_01", t[0][1], 4.0)
+
+# ── MATMUL ───────────────────────────────────────
+println("--- Matmul ---")
+let x = nd.array([[1.0,0.0],[0.0,1.0]])
+let y = nd.array([[5.0,6.0],[7.0,8.0]])
+let z = nd.matmul(x, y)
+check("matmul_id_00", z[0][0], 5.0)
+check("matmul_id_01", z[0][1], 6.0)
+check("matmul_id_10", z[1][0], 7.0)
+check("matmul_id_11", z[1][1], 8.0)
+
+let p = nd.array([[1.0,2.0],[3.0,4.0]])
+let q = nd.array([[5.0,6.0],[7.0,8.0]])
+let pq = nd.matmul(p, q)
+check("matmul_00", pq[0][0], 19.0)
+check("matmul_01", pq[0][1], 22.0)
+check("matmul_10", pq[1][0], 43.0)
+check("matmul_11", pq[1][1], 50.0)
+
+# ── RESHAPE ──────────────────────────────────────
+println("--- Reshape ---")
+let flat = nd.reshape(arr2d, [6])
+check("reshape_1d", flat.ndim, 1)
+check("reshape_0",  flat[0], 1.0)
+check("reshape_5",  flat[5], 6.0)
+
+let r23 = nd.reshape(flat, [2,3])
+check("reshape_2d_r", r23.shape[0], 2)
+check("reshape_2d_c", r23.shape[1], 3)
+check("reshape_2d_00", r23[0][0], 1.0)
+check("reshape_2d_12", r23[1][2], 6.0)
+
+let r32 = nd.reshape(flat, [3,2])
+check("reshape_32_r", r32.shape[0], 3)
+check("reshape_32_c", r32.shape[1], 2)
+
+# ── STATISTICHE ──────────────────────────────────
+println("--- Statistiche ---")
+let nums = nd.array([[1.0,2.0,3.0],[4.0,5.0,6.0]])
+check("sum_all",  nd.sum(nums), 21.0)
+check("mean_all", nd.mean(nums), 3.5)
+check("min_all",  nd.min(nums), 1.0)
+check("max_all",  nd.max(nums), 6.0)
+check("argmin",   nd.argmin(nums), 0)
+check("argmax",   nd.argmax(nums), 5)
+check_near("std_all", nd.std(nums), 1.7078)
+
+# ── FUNZIONI ELEMENT-WISE ────────────────────────
+println("--- Funzioni element-wise ---")
+let va = nd.array([0.0, 1.0, 4.0, 9.0])
+let vsqrt = nd.sqrt(va)
+check("sqrt_0", vsqrt[0], 0.0)
+check("sqrt_1", vsqrt[1], 1.0)
+check("sqrt_4", vsqrt[2], 2.0)
+check("sqrt_9", vsqrt[3], 3.0)
+
+let vabs = nd.abs(nd.array([-1.0, -2.0, 3.0]))
+check("abs_neg", vabs[0], 1.0)
+check("abs_pos", vabs[2], 3.0)
+
+let vexp = nd.exp(nd.array([0.0]))
+check_near("exp_0", vexp[0], 1.0)
+
+let vlog = nd.log(nd.array([1.0]))
+check_near("log_1", vlog[0], 0.0)
+
+# ── CLIP, WHERE, CUMSUM ──────────────────────────
+println("--- Clip/Where/Cumsum ---")
+let vc = nd.clip(nd.array([1.0,5.0,10.0]), 2.0, 8.0)
+check("clip_low",  vc[0], 2.0)
+check("clip_mid",  vc[1], 5.0)
+check("clip_high", vc[2], 8.0)
+
+let cs = nd.cumsum(nd.array([1.0,2.0,3.0,4.0]))
+check("cumsum_0", cs[0], 1.0)
+check("cumsum_1", cs[1], 3.0)
+check("cumsum_3", cs[3], 10.0)
+
+# ── STACK ────────────────────────────────────────
+println("--- Stack ---")
+let row1 = nd.array([1.0, 2.0, 3.0])
+let row2 = nd.array([4.0, 5.0, 6.0])
+let vs = nd.vstack([row1, row2])
+check("vstack_r", vs.shape[0], 2)
+check("vstack_c", vs.shape[1], 3)
+check("vstack_00", vs[0][0], 1.0)
+check("vstack_10", vs[1][0], 4.0)
+
+let hs = nd.hstack([row1, row2])
+check("hstack_len", hs.size, 6)
+check("hstack_3", hs[3], 4.0)
+
+# ── ARANGE, LINSPACE ────────────────────────────
+println("--- Arange/Linspace ---")
+let ar = nd.arange(0.0, 5.0, 1.0)
+check("arange_len", ar.size, 5)
+check("arange_0", ar[0], 0.0)
+check("arange_4", ar[4], 4.0)
+
+let ls = nd.linspace(0.0, 1.0, 5)
+check("linspace_0",    ls[0], 0.0)
+check("linspace_last", ls[4], 1.0)
+check_near("linspace_mid", ls[2], 0.5)
+
+# ── DIAG, NORM ───────────────────────────────────
+println("--- Diag/Norm ---")
+let dg = nd.diag(nd.array([1.0, 2.0, 3.0]))
+check("diag_00", dg[0][0], 1.0)
+check("diag_11", dg[1][1], 2.0)
+check("diag_off", dg[0][1], 0.0)
+
+let nv = nd.array([3.0, 4.0])
+check("norm_2d", nd.norm(nv), 5.0)
+
+# ── ASTYPE ───────────────────────────────────────
+println("--- Astype ---")
+let fi = nd.astype(nd.array([1.5, 2.7, 3.1]), "Int64")
+check("astype_int_dtype", fi.dtype, "Int64")
+check("astype_int_0", fi[0], 1)
+
+# ── BROADCAST (shape diverso) ────────────────────
+println("--- Broadcasting shape diverso ---")
+let big = nd.array([[1.0,2.0,3.0],[4.0,5.0,6.0]])
+let scalar_nd = nd.array([2.0])
+let bcast = big * scalar_nd   # broadcast scalar NdArray
+check("broadcast_scalar", bcast[0][0], 2.0)
+check("broadcast_scalar2", bcast[1][2], 12.0)
+
+# ── FLATTEN ──────────────────────────────────────
+println("--- Flatten ---")
+let fl = nd.flatten(arr2d)
+check("flatten_ndim", fl.ndim, 1)
+check("flatten_0", fl[0], 1.0)
+check("flatten_5", fl[5], 6.0)
+
+# ── COSA NON FUNZIONA (skip) ─────────────────────
+println("--- Limitazioni note ---")
+# 1. m[i][j] = val non modifica l'array originale (row è copia, non view)
+println("  SKIP: m[i][j]=val — row è copia, non view (usa nd.set)")
+# 2. Slicing multidim m[0:2, 1:3] non supportato
+println("  SKIP: slicing multidim m[0:2, 1:3] non implementato")
+# 3. Broadcasting shape non-scalar (es. [3,1] x [3,3])
+println("  SKIP: broadcasting avanzato (non-scalar shapes)")
+# 4. Operatori di confronto su NdArray (a > 0 → bool mask)
+println("  SKIP: boolean masking (a > 0)")
+# 5. Axis= nei reduce (sum(axis=0) etc)
+println("  SKIP: reduce per asse (nd.sum(a, axis=0))")
+
+println("")
+println(f"=== NdArray audit: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL PASSED")
