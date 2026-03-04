@@ -4,7 +4,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use indexmap::IndexMap;
+use indexmap::{Equivalent, IndexMap};
 
 use crate::chunk::FnProto;
 
@@ -328,10 +328,12 @@ impl Eq for Value {}
 impl Hash for Value {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
+            // Str: hasha solo il contenuto (senza discriminant) per compatibilità
+            // con Equivalent<Value> for str — hash("foo") == hash(Value::Str("foo"))
+            Value::Str(s)    => { s.hash(state); }
             Value::Int(n)    => { 0u8.hash(state); n.hash(state); }
             Value::Float(f)  => { 1u8.hash(state); f.to_bits().hash(state); }
             Value::Bool(b)   => { 2u8.hash(state); b.hash(state); }
-            Value::Str(s)    => { 3u8.hash(state); s.hash(state); }
             Value::None      => { 4u8.hash(state); }
             // Tipi non scalari: hash per identità del puntatore
             Value::Array(a)  => { 5u8.hash(state); Rc::as_ptr(a).hash(state); }
@@ -352,6 +354,16 @@ impl Hash for Value {
     }
 }
 
+/// Permette `dict.get("key")` senza allocare `Value::Str` — zero-alloc lookup per moduli.
+/// Usato in VM GetField quando la chiave è un nome di campo noto a compile time.
+impl Equivalent<Value> for str {
+    fn equivalent(&self, key: &Value) -> bool {
+        match key {
+            Value::Str(s) => s.as_str() == self,
+            _ => false,
+        }
+    }
+}
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {

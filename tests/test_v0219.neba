@@ -1,0 +1,54 @@
+# Test suite v0.2.19 — ottimizzazioni Value size + zero-alloc Dict lookup
+var ok = 0
+var fail = 0
+fn check(label, got, expected)
+    if got == expected
+        ok += 1
+    else
+        fail += 1
+        println(f"FAIL [{label}]: got {got}, expected {expected}")
+
+# ─── Verifica che i moduli funzionino ancora (zero-alloc Dict lookup) ────
+check("math.sin(0)",      math.sin(0.0),          0.0)
+check("math.cos(0)",      math.cos(0.0),          1.0)
+check("math.sqrt(4)",     math.sqrt(4.0),         2.0)
+check("math.pi type",     math.pi > 3.14,         true)
+check("math.randint",     math.randint(5,5),      5)
+check("random.randint",   random.randint(0,0),    0)
+check("string.upper",     string.upper("hello"),  "HELLO")
+check("string.split",     len(string.split("a b c")), 3)
+check("io.cwd",           len(io.cwd()) > 0,      true)
+check("io.path.exists",   io.path.exists("/tmp"), true)
+
+# ─── NativeFn come Value ─────────────────────────────────────────────────
+let f = math.sin
+check("NativeFn callable", f(0.0), 0.0)
+
+let g = string.upper
+check("NativeFn callable 2", g("hi"), "HI")
+
+# ─── Dict lookup con chiavi stringa ──────────────────────────────────────
+let d = {"alpha": 1, "beta": 2, "gamma": 3}
+check("dict str key alpha", d["alpha"], 1)
+check("dict str key gamma", d["gamma"], 3)
+d["delta"] = 4
+check("dict insert delta", d["delta"], 4)
+
+# ─── Stress: molti accessi a modulo ──────────────────────────────────────
+var sum = 0.0
+var i = 0
+while i < 1000
+    sum += math.abs(-1.0)
+    i += 1
+check("1k math.abs calls", sum, 1000.0)
+
+# ─── Compatibilità con test precedenti ───────────────────────────────────
+fn fib(n)
+    if n <= 1
+        return n
+    return fib(n-1) + fib(n-2)
+check("fib(10)", fib(10), 55)
+
+println(f"\n=== v0.2.19 test results: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL TESTS PASSED")

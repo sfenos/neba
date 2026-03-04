@@ -426,7 +426,7 @@ impl Vm {
                     let method = match &obj {
                         Value::Instance(inst) => inst.borrow().fields.get(&name).cloned()
                             .ok_or_else(|| VmError::UnknownField { type_name: inst.borrow().class_name.clone(), field: name.clone() })?,
-                        Value::Dict(d) => { let key = Value::str(&name); d.borrow().get(&key).cloned()
+                        Value::Dict(d) => { d.borrow().get(name.as_str()).cloned()
                             .ok_or_else(|| VmError::UnknownField { type_name: "Dict".into(), field: name.clone() })? }
                         other => return Err(VmError::UnknownField { type_name: other.type_name().to_string(), field: name.clone() }),
                     };
@@ -754,8 +754,7 @@ impl Vm {
                 Err(VmError::UnknownField { type_name: inst.borrow().class_name.clone(), field: field.to_string() })
             }
             Value::Dict(d) => {
-                let key = Value::str(field);
-                d.borrow().get(&key).cloned()
+                d.borrow().get(field).cloned()
                     .ok_or_else(|| VmError::UnknownField { type_name: "Dict".into(), field: field.to_string() })
             }
             Value::Array(arr) => match field {
@@ -1065,7 +1064,7 @@ impl Vm {
                             let method = match &obj {
                                 Value::Instance(inst) => inst.borrow().fields.get(&name).cloned()
                                     .ok_or_else(|| VmError::UnknownField { type_name: inst.borrow().class_name.clone(), field: name.clone() })?,
-                                Value::Dict(d) => { let key = Value::str(&name); d.borrow().get(&key).cloned()
+                                Value::Dict(d) => { d.borrow().get(name.as_str()).cloned()
                                     .ok_or_else(|| VmError::UnknownField { type_name: "Dict".into(), field: name.clone() })? }
                                 other => return Err(VmError::UnknownField { type_name: other.type_name().to_string(), field: name.clone() }),
                             };

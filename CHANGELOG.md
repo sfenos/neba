@@ -3,6 +3,34 @@
 Tutte le modifiche rilevanti del progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
+## [v0.2.19] — 2026-03-04 — Value size 40→24 bytes, zero-alloc Dict lookup
+
+### Ottimizzazioni
+
+**Value: 40 → 24 bytes (-40%):**
+- `NativeFn(String, fn)` → `NativeFn(Rc<String>, fn)`
+  `String` nel variant occupava 24 byte; `Rc<String>` è 8 byte (puntatore)
+  Era il variant più grande — determinava la dimensione di tutto l'enum
+- Aggiunto `Value::native_fn(name, f)` helper constructor
+  Tutti i siti di costruzione in `stdlib.rs` aggiornati
+- Invariante: `IntRange(i64,i64,bool)` mantiene i64 per correttezza con range grandi
+
+**Zero-alloc Dict lookup (moduli e accesso a campo):**
+- Implementato `Equivalent<Value> for str` (`indexmap::Equivalent`)
+  Permette `map.get(field_name: &str)` senza costruire `Value::str(field_name)`
+- Ogni accesso `math.sin`, `io.read_file`, `d["key"]` eliminava una heap allocation
+  (`Rc::new(String::new(...))`) — ora è un lookup diretto sul contenuto stringa
+- Hash di `Value::Str` allineato con hash di `str` (rimosso prefisso `3u8`)
+  Requisito di correttezza per `Equivalent`: `hash(key) == hash(query)`
+- Aggiornati 3 siti hot path in `vm.rs`: `GetField` (main loop), `get_field()`, `GetField` (HOF loop)
+
+### Note architetturali
+NaN-boxing unsafe (24→8 byte) rimandato a post-JIT:
+richiederebbe `unsafe` + refactoring di 750+ match arms su `Value`.
+
+### Test
+- 17 test in `tests/test_v0219.neba`, 208/208 unit test passati
+
 ## [v0.2.17] — 2026-03-04 — Dict → IndexMap (O(1) lookup)
 
 ### Ottimizzazioni
