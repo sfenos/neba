@@ -58,6 +58,7 @@ pub fn register_globals(globals: &mut HashMap<String, (Value, bool)>) {
     globals.insert("string".to_string(),      (make_string_module(),      false));
     globals.insert("io".to_string(),          (make_io_module(),          false));
     globals.insert("collections".to_string(), (make_collections_module(), false));
+    globals.insert("random".to_string(),      (make_random_module(),      false));
     // ── HOF: map / filter / reduce (v0.2.12) ─────────────────────────────
     // Il body è un placeholder — vengono intercettati in Op::Call dalla VM
     // prima del dispatch normale, quindi questa fn non viene mai eseguita.
@@ -801,6 +802,20 @@ pub fn make_math_module() -> Value {
         entry("radians",math_radians),
         entry("hypot",  math_hypot),
         entry("factorial", math_factorial),
+        // v0.2.18
+        entry("sinh",    math_sinh),
+        entry("cosh",    math_cosh),
+        entry("tanh",    math_tanh),
+        entry("cbrt",    math_cbrt),
+        entry("log1p",   math_log1p),
+        entry("expm1",   math_expm1),
+        entry("abs",     math_abs),
+        entry("random",  math_random),
+        entry("randint", math_randint),
+        entry("choice",  math_choice),
+        entry("shuffle", math_shuffle),
+        entry("seed",    math_seed),
+        entry("sample",  math_sample),
     ];
     Value::dict(pairs)
 }
@@ -1018,6 +1033,21 @@ pub fn make_string_module() -> Value {
         entry("is_empty",   str_is_empty),
         entry("index",      str_find),    // alias
         entry("format",     str_format),
+        // v0.2.18
+        entry("zfill",      str_zfill),
+        entry("center",     str_center),
+        entry("ljust",      str_ljust),
+        entry("rjust",      str_rjust),
+        entry("to_int",     str_to_int),
+        entry("to_float",   str_to_float),
+        entry("is_digit",   str_is_digit),
+        entry("is_alpha",   str_is_alpha),
+        entry("is_alnum",   str_is_alnum),
+        entry("is_upper",   str_is_upper),
+        entry("is_lower",   str_is_lower),
+        entry("capitalize", str_capitalize),
+        entry("title",      str_title),
+        entry("slice",      str_slice),
     ];
     Value::dict(pairs)
 }
@@ -1208,6 +1238,26 @@ pub fn make_io_module() -> Value {
         entry("file_exists", io_file_exists),
         entry("read_lines",  io_read_lines),
         entry("delete_file", io_delete_file),
+        // v0.2.18: nuove io functions
+        entry("listdir",    io_listdir),
+        entry("cwd",        io_cwd),
+        entry("mkdir",      io_mkdir),
+        // io.path come sotto-dizionario
+        (Value::str("path"), {
+            fn e(name: &str, f: fn(&[Value]) -> Result<Value, String>) -> (Value, Value) {
+                (Value::str(name), Value::NativeFn(name.to_string(), f))
+            }
+            Value::dict(vec![
+                e("join",     io_path_join),
+                e("dirname",  io_path_dirname),
+                e("basename", io_path_basename),
+                e("stem",     io_path_stem),
+                e("ext",      io_path_ext),
+                e("exists",   io_path_exists),
+                e("isfile",   io_path_isfile),
+                e("isdir",    io_path_isdir),
+            ])
+        }),
     ];
     Value::dict(pairs)
 }
@@ -1526,4 +1576,396 @@ fn hof_filter_stub(_: &[Value]) -> Result<Value, String> {
 }
 fn hof_reduce_stub(_: &[Value]) -> Result<Value, String> {
     Err("reduce: should have been intercepted by VM HOF dispatch".into())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v0.2.18 — math extensions, string extensions, random module, io.path
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── math: sinh / cosh / tanh / cbrt / log1p / expm1 ─────────────────────
+
+fn math_sinh(args: &[Value]) -> Result<Value, String> {
+    Ok(Value::Float(as_f64(args.first().ok_or("sinh() requires 1 argument")?, "sinh")?.sinh()))
+}
+fn math_cosh(args: &[Value]) -> Result<Value, String> {
+    Ok(Value::Float(as_f64(args.first().ok_or("cosh() requires 1 argument")?, "cosh")?.cosh()))
+}
+fn math_tanh(args: &[Value]) -> Result<Value, String> {
+    Ok(Value::Float(as_f64(args.first().ok_or("tanh() requires 1 argument")?, "tanh")?.tanh()))
+}
+fn math_cbrt(args: &[Value]) -> Result<Value, String> {
+    Ok(Value::Float(as_f64(args.first().ok_or("cbrt() requires 1 argument")?, "cbrt")?.cbrt()))
+}
+fn math_log1p(args: &[Value]) -> Result<Value, String> {
+    Ok(Value::Float(as_f64(args.first().ok_or("log1p() requires 1 argument")?, "log1p")?.ln_1p()))
+}
+fn math_expm1(args: &[Value]) -> Result<Value, String> {
+    Ok(Value::Float(as_f64(args.first().ok_or("expm1() requires 1 argument")?, "expm1")?.exp_m1()))
+}
+fn math_abs(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("math.abs() requires 1 argument")? {
+        Value::Int(n)   => Ok(Value::Int(n.abs())),
+        Value::Float(f) => Ok(Value::Float(f.abs())),
+        v => Err(format!("math.abs(): expected numeric, got {}", v.type_name())),
+    }
+}
+
+// ── math: random (LCG semplice — senza dipendenze esterne) ───────────────
+// Stato condiviso tramite thread_local — sufficiente per uso single-thread
+use std::cell::Cell;
+thread_local! {
+    static RNG_STATE: Cell<u64> = Cell::new(12345678901234567u64);
+}
+fn lcg_next() -> u64 {
+    RNG_STATE.with(|s| {
+        // Parametri da Knuth MMIX
+        let v = s.get().wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s.set(v); v
+    })
+}
+
+fn math_random(args: &[Value]) -> Result<Value, String> {
+    if !args.is_empty() { return Err("math.random() takes no arguments".into()); }
+    let bits = lcg_next();
+    // Mappa [0, 2^53) → [0.0, 1.0)
+    Ok(Value::Float((bits >> 11) as f64 / (1u64 << 53) as f64))
+}
+fn math_randint(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Int(lo), Value::Int(hi)] => {
+            if lo > hi { return Err(format!("randint({}, {}): lo > hi", lo, hi)); }
+            let range = (*hi - *lo + 1) as u64;
+            Ok(Value::Int(*lo + (lcg_next() % range) as i64))
+        }
+        _ => Err("math.randint(lo, hi) requires 2 Int arguments".into()),
+    }
+}
+fn math_choice(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("math.choice() requires 1 argument")? {
+        Value::Array(a) => {
+            let arr = a.borrow();
+            if arr.is_empty() { return Err("math.choice(): empty array".into()); }
+            let idx = lcg_next() as usize % arr.len();
+            Ok(arr[idx].clone())
+        }
+        v => Err(format!("math.choice(): expected Array, got {}", v.type_name())),
+    }
+}
+fn math_shuffle(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("math.shuffle() requires 1 argument")? {
+        Value::Array(a) => {
+            let mut arr = a.borrow_mut();
+            let n = arr.len();
+            // Fisher-Yates
+            for i in (1..n).rev() {
+                let j = lcg_next() as usize % (i + 1);
+                arr.swap(i, j);
+            }
+            Ok(Value::None)
+        }
+        v => Err(format!("math.shuffle(): expected Array, got {}", v.type_name())),
+    }
+}
+fn math_seed(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("math.seed() requires 1 argument")? {
+        Value::Int(n) => { RNG_STATE.with(|s| s.set(*n as u64)); Ok(Value::None) }
+        v => Err(format!("math.seed(): expected Int, got {}", v.type_name())),
+    }
+}
+fn math_sample(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Array(a), Value::Int(k)] => {
+            let arr = a.borrow();
+            let k = *k as usize;
+            if k > arr.len() { return Err(format!("math.sample(): k={} > len={}", k, arr.len())); }
+            let mut indices: Vec<usize> = (0..arr.len()).collect();
+            // Partial Fisher-Yates — seleziona k elementi
+            for i in 0..k {
+                let j = i + lcg_next() as usize % (arr.len() - i);
+                indices.swap(i, j);
+            }
+            let result: Vec<Value> = indices[..k].iter().map(|&i| arr[i].clone()).collect();
+            Ok(Value::array(result))
+        }
+        _ => Err("math.sample(array, k) requires Array and Int".into()),
+    }
+}
+
+// ── string extensions ─────────────────────────────────────────────────────
+
+fn str_zfill(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Str(s), Value::Int(w)] => {
+            let w = *w as usize;
+            let s = s.as_str();
+            if s.len() >= w { return Ok(Value::str(s)); }
+            let pad = w - s.len();
+            // Gestisce il segno: "-42".zfill(5) → "-0042"
+            if s.starts_with('-') {
+                Ok(Value::str(format!("-{}{}", "0".repeat(pad), &s[1..])))
+            } else {
+                Ok(Value::str(format!("{}{}", "0".repeat(pad), s)))
+            }
+        }
+        _ => Err("string.zfill(s, width) requires Str and Int".into()),
+    }
+}
+fn str_center(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Str(s), Value::Int(w)] => {
+            let w = *w as usize; let s = s.as_str(); let len = s.chars().count();
+            if len >= w { return Ok(Value::str(s)); }
+            let total_pad = w - len;
+            let left = total_pad / 2; let right = total_pad - left;
+            Ok(Value::str(format!("{}{}{}", " ".repeat(left), s, " ".repeat(right))))
+        }
+        [Value::Str(s), Value::Int(w), Value::Str(fill)] => {
+            let w = *w as usize; let s = s.as_str(); let len = s.chars().count();
+            let fc = fill.chars().next().unwrap_or(' ');
+            if len >= w { return Ok(Value::str(s)); }
+            let total_pad = w - len;
+            let left = total_pad / 2; let right = total_pad - left;
+            Ok(Value::str(format!("{}{}{}", fc.to_string().repeat(left), s, fc.to_string().repeat(right))))
+        }
+        _ => Err("string.center(s, width, fill?) requires Str and Int".into()),
+    }
+}
+fn str_ljust(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Str(s), Value::Int(w)] => {
+            let w = *w as usize; let s = s.as_str(); let len = s.chars().count();
+            if len >= w { return Ok(Value::str(s)); }
+            Ok(Value::str(format!("{}{}", s, " ".repeat(w - len))))
+        }
+        [Value::Str(s), Value::Int(w), Value::Str(fill)] => {
+            let w = *w as usize; let s = s.as_str(); let len = s.chars().count();
+            let fc = fill.chars().next().unwrap_or(' ');
+            if len >= w { return Ok(Value::str(s)); }
+            Ok(Value::str(format!("{}{}", s, fc.to_string().repeat(w - len))))
+        }
+        _ => Err("string.ljust(s, width, fill?) requires Str and Int".into()),
+    }
+}
+fn str_rjust(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Str(s), Value::Int(w)] => {
+            let w = *w as usize; let s = s.as_str(); let len = s.chars().count();
+            if len >= w { return Ok(Value::str(s)); }
+            Ok(Value::str(format!("{}{}", " ".repeat(w - len), s)))
+        }
+        [Value::Str(s), Value::Int(w), Value::Str(fill)] => {
+            let w = *w as usize; let s = s.as_str(); let len = s.chars().count();
+            let fc = fill.chars().next().unwrap_or(' ');
+            if len >= w { return Ok(Value::str(s)); }
+            Ok(Value::str(format!("{}{}", fc.to_string().repeat(w - len), s)))
+        }
+        _ => Err("string.rjust(s, width, fill?) requires Str and Int".into()),
+    }
+}
+fn str_to_int(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Str(s)] => s.trim().parse::<i64>()
+            .map(Value::Int)
+            .map_err(|_| format!("string.to_int(): cannot parse {:?} as Int", s.as_str())),
+        [Value::Str(s), Value::Int(base)] => i64::from_str_radix(s.trim(), *base as u32)
+            .map(Value::Int)
+            .map_err(|_| format!("string.to_int(): cannot parse {:?} in base {}", s.as_str(), base)),
+        _ => Err("string.to_int(s, base=10) requires Str".into()),
+    }
+}
+fn str_to_float(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("string.to_float() requires 1 argument")? {
+        Value::Str(s) => s.trim().parse::<f64>()
+            .map(Value::Float)
+            .map_err(|_| format!("string.to_float(): cannot parse {:?} as Float", s.as_str())),
+        v => Err(format!("string.to_float(): expected Str, got {}", v.type_name())),
+    }
+}
+fn str_is_digit(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("string.is_digit() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::Bool(!s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))),
+        v => Err(format!("string.is_digit(): expected Str, got {}", v.type_name())),
+    }
+}
+fn str_is_alpha(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("string.is_alpha() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::Bool(!s.is_empty() && s.chars().all(|c| c.is_alphabetic()))),
+        v => Err(format!("string.is_alpha(): expected Str, got {}", v.type_name())),
+    }
+}
+fn str_is_alnum(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("string.is_alnum() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::Bool(!s.is_empty() && s.chars().all(|c| c.is_alphanumeric()))),
+        v => Err(format!("string.is_alnum(): expected Str, got {}", v.type_name())),
+    }
+}
+fn str_is_upper(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("string.is_upper() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::Bool(!s.is_empty() && s.chars().all(|c| !c.is_lowercase()))),
+        v => Err(format!("string.is_upper(): expected Str, got {}", v.type_name())),
+    }
+}
+fn str_is_lower(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("string.is_lower() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::Bool(!s.is_empty() && s.chars().all(|c| !c.is_uppercase()))),
+        v => Err(format!("string.is_lower(): expected Str, got {}", v.type_name())),
+    }
+}
+fn str_capitalize(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("string.capitalize() requires 1 argument")? {
+        Value::Str(s) => {
+            let mut chars = s.chars();
+            let result = match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_uppercase().to_string() + &chars.as_str().to_lowercase(),
+            };
+            Ok(Value::str(result))
+        }
+        v => Err(format!("string.capitalize(): expected Str, got {}", v.type_name())),
+    }
+}
+fn str_title(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("string.title() requires 1 argument")? {
+        Value::Str(s) => {
+            let result = s.split_whitespace()
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            Ok(Value::str(result))
+        }
+        v => Err(format!("string.title(): expected Str, got {}", v.type_name())),
+    }
+}
+fn str_slice(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [Value::Str(s), Value::Int(start)] => {
+            let chars: Vec<char> = s.chars().collect();
+            let len = chars.len() as i64;
+            let i = if *start < 0 { (len + start).max(0) as usize } else { (*start as usize).min(chars.len()) };
+            Ok(Value::str(chars[i..].iter().collect::<String>()))
+        }
+        [Value::Str(s), Value::Int(start), Value::Int(end)] => {
+            let chars: Vec<char> = s.chars().collect();
+            let len = chars.len() as i64;
+            let i = if *start < 0 { (len + start).max(0) as usize } else { (*start as usize).min(chars.len()) };
+            let j = if *end < 0 { (len + end).max(0) as usize } else { (*end as usize).min(chars.len()) };
+            Ok(Value::str(chars[i..j.max(i)].iter().collect::<String>()))
+        }
+        _ => Err("string.slice(s, start, end?) requires Str and Int".into()),
+    }
+}
+
+// ── io.path extensions ────────────────────────────────────────────────────
+
+fn io_path_join(args: &[Value]) -> Result<Value, String> {
+    use std::path::PathBuf;
+    let parts: Vec<&str> = args.iter().map(|v| match v {
+        Value::Str(s) => Ok(s.as_str()),
+        _ => Err(format!("io.path.join(): expected Str, got {}", v.type_name())),
+    }).collect::<Result<Vec<_>, _>>()?;
+    if parts.is_empty() { return Err("io.path.join() requires at least 1 argument".into()); }
+    let mut path = PathBuf::from(parts[0]);
+    for p in &parts[1..] { path.push(p); }
+    Ok(Value::str(path.to_string_lossy().to_string()))
+}
+fn io_path_dirname(args: &[Value]) -> Result<Value, String> {
+    use std::path::Path;
+    match args.first().ok_or("io.path.dirname() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::str(
+            Path::new(s.as_str()).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+        )),
+        v => Err(format!("io.path.dirname(): expected Str, got {}", v.type_name())),
+    }
+}
+fn io_path_basename(args: &[Value]) -> Result<Value, String> {
+    use std::path::Path;
+    match args.first().ok_or("io.path.basename() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::str(
+            Path::new(s.as_str()).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        )),
+        v => Err(format!("io.path.basename(): expected Str, got {}", v.type_name())),
+    }
+}
+fn io_path_stem(args: &[Value]) -> Result<Value, String> {
+    use std::path::Path;
+    match args.first().ok_or("io.path.stem() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::str(
+            Path::new(s.as_str()).file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        )),
+        v => Err(format!("io.path.stem(): expected Str, got {}", v.type_name())),
+    }
+}
+fn io_path_ext(args: &[Value]) -> Result<Value, String> {
+    use std::path::Path;
+    match args.first().ok_or("io.path.ext() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::str(
+            Path::new(s.as_str()).extension().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        )),
+        v => Err(format!("io.path.ext(): expected Str, got {}", v.type_name())),
+    }
+}
+fn io_path_exists(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("io.path.exists() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::Bool(std::path::Path::new(s.as_str()).exists())),
+        v => Err(format!("io.path.exists(): expected Str, got {}", v.type_name())),
+    }
+}
+fn io_path_isfile(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("io.path.isfile() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::Bool(std::path::Path::new(s.as_str()).is_file())),
+        v => Err(format!("io.path.isfile(): expected Str, got {}", v.type_name())),
+    }
+}
+fn io_path_isdir(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("io.path.isdir() requires 1 argument")? {
+        Value::Str(s) => Ok(Value::Bool(std::path::Path::new(s.as_str()).is_dir())),
+        v => Err(format!("io.path.isdir(): expected Str, got {}", v.type_name())),
+    }
+}
+fn io_listdir(args: &[Value]) -> Result<Value, String> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.as_str().to_string(),
+        None => ".".to_string(),
+        Some(v) => return Err(format!("io.listdir(): expected Str, got {}", v.type_name())),
+    };
+    let entries = std::fs::read_dir(&path)
+        .map_err(|e| format!("io.listdir('{}'): {}", path, e))?
+        .filter_map(|e| e.ok())
+        .map(|e| Value::str(e.file_name().to_string_lossy().to_string()))
+        .collect();
+    Ok(Value::array(entries))
+}
+fn io_cwd(_args: &[Value]) -> Result<Value, String> {
+    std::env::current_dir()
+        .map(|p| Value::str(p.to_string_lossy().to_string()))
+        .map_err(|e| format!("io.cwd(): {}", e))
+}
+fn io_mkdir(args: &[Value]) -> Result<Value, String> {
+    match args.first().ok_or("io.mkdir() requires 1 argument")? {
+        Value::Str(s) => std::fs::create_dir_all(s.as_str())
+            .map(|_| Value::None)
+            .map_err(|e| format!("io.mkdir('{}'): {}", s, e)),
+        v => Err(format!("io.mkdir(): expected Str, got {}", v.type_name())),
+    }
+}
+
+/// Modulo `random` standalone — alias delle funzioni math.random*
+pub fn make_random_module() -> Value {
+    fn entry(name: &str, f: fn(&[Value]) -> Result<Value, String>) -> (Value, Value) {
+        (Value::str(name), Value::NativeFn(name.to_string(), f))
+    }
+    Value::dict(vec![
+        entry("random",  math_random),
+        entry("randint", math_randint),
+        entry("choice",  math_choice),
+        entry("shuffle", math_shuffle),
+        entry("seed",    math_seed),
+        entry("sample",  math_sample),
+    ])
 }

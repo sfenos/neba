@@ -1,0 +1,124 @@
+# Test suite v0.2.18 — math extensions, string extensions, random, io.path
+var ok = 0
+var fail = 0
+
+fn check(label, got, expected)
+    if got == expected
+        ok += 1
+    else
+        fail += 1
+        println(f"FAIL [{label}]: got {got}, expected {expected}")
+
+fn check_approx(label, got, expected, tol)
+    var diff = got - expected
+    if diff < 0.0
+        diff = -diff
+    if diff < tol
+        ok += 1
+    else
+        fail += 1
+        println(f"FAIL [{label}]: got {got}, expected ~{expected}")
+
+# ─── math: iperboliche ────────────────────────────────────────────────────
+check_approx("sinh(0)",  math.sinh(0.0), 0.0,     1e-10)
+check_approx("cosh(0)",  math.cosh(0.0), 1.0,     1e-10)
+check_approx("tanh(0)",  math.tanh(0.0), 0.0,     1e-10)
+check_approx("tanh(inf)", math.tanh(1000.0), 1.0, 1e-6)
+check_approx("cbrt(8)",  math.cbrt(8.0),  2.0,    1e-10)
+check_approx("cbrt(-27)",math.cbrt(-27.0),-3.0,   1e-10)
+check_approx("log1p(0)", math.log1p(0.0), 0.0,    1e-10)
+check_approx("expm1(0)", math.expm1(0.0), 0.0,    1e-10)
+
+# ─── math.abs ─────────────────────────────────────────────────────────────
+check("math.abs(-5)",   math.abs(-5),    5)
+check("math.abs(3.14)", math.abs(-3.14), 3.14)
+check("math.abs(0)",    math.abs(0),     0)
+
+# ─── math.random / random module ──────────────────────────────────────────
+math.seed(42)
+let r1 = math.random()
+let r2 = math.random()
+check("random in [0,1)", r1 >= 0.0 and r1 < 1.0, true)
+check("random different", r1 == r2, false)
+
+math.seed(42)
+let r3 = math.random()
+check("seed reproducible", r1 == r3, true)
+
+let ri = math.randint(1, 10)
+check("randint in range", ri >= 1 and ri <= 10, true)
+
+let arr = [10, 20, 30, 40, 50]
+let c = math.choice(arr)
+check("choice in arr", c == 10 or c == 20 or c == 30 or c == 40 or c == 50, true)
+
+math.seed(99)
+let arr2 = [1, 2, 3, 4, 5]
+math.shuffle(arr2)
+check("shuffle len", len(arr2), 5)
+check("shuffle sum", sum(arr2), 15)   # somma invariata
+
+let sample = math.sample([1, 2, 3, 4, 5], 3)
+check("sample len", len(sample), 3)
+
+# ─── random module standalone ─────────────────────────────────────────────
+random.seed(42)
+let rv = random.random()
+check("random.random in [0,1)", rv >= 0.0 and rv < 1.0, true)
+let ri2 = random.randint(0, 100)
+check("random.randint range", ri2 >= 0 and ri2 <= 100, true)
+
+# ─── string extensions ────────────────────────────────────────────────────
+check("zfill 5",     string.zfill("42", 5),    "00042")
+check("zfill neg",   string.zfill("-7", 4),    "-007")
+check("zfill short", string.zfill("hello", 3), "hello")
+
+check("center 10",   string.center("hi", 10),    "    hi    ")
+check("ljust 8",     string.ljust("hi", 8),      "hi      ")
+check("rjust 8",     string.rjust("hi", 8),      "      hi")
+check("ljust fill",  string.ljust("hi", 6, "*"), "hi****")
+check("rjust fill",  string.rjust("hi", 6, "*"), "****hi")
+
+check("to_int",      string.to_int("42"),     42)
+check("to_int neg",  string.to_int("-17"),    -17)
+check("to_int base", string.to_int("ff", 16), 255)
+check("to_float",    string.to_float("3.14"), 3.14)
+
+check("is_digit yes", string.is_digit("123"),   true)
+check("is_digit no",  string.is_digit("12x"),   false)
+check("is_alpha yes", string.is_alpha("hello"), true)
+check("is_alpha no",  string.is_alpha("hi2"),   false)
+check("is_alnum",     string.is_alnum("hi2"),   true)
+check("is_upper yes", string.is_upper("ABC"),   true)
+check("is_upper no",  string.is_upper("Abc"),   false)
+check("is_lower yes", string.is_lower("abc"),   true)
+check("is_lower no",  string.is_lower("Abc"),   false)
+
+check("capitalize",   string.capitalize("hello world"), "Hello world")
+check("title",        string.title("hello world"),       "Hello World")
+
+check("slice start",  string.slice("hello", 1),    "ello")
+check("slice range",  string.slice("hello", 1, 4), "ell")
+check("slice neg",    string.slice("hello", -3),   "llo")
+
+# ─── io.path ──────────────────────────────────────────────────────────────
+check("path.join",     io.path.join("/tmp", "foo", "bar.txt"), "/tmp/foo/bar.txt")
+check("path.dirname",  io.path.dirname("/tmp/foo/bar.txt"),    "/tmp/foo")
+check("path.basename", io.path.basename("/tmp/foo/bar.txt"),   "bar.txt")
+check("path.stem",     io.path.stem("/tmp/foo/bar.txt"),       "bar")
+check("path.ext",      io.path.ext("/tmp/foo/bar.txt"),        "txt")
+check("path.exists /tmp", io.path.exists("/tmp"),  true)
+check("path.isdir /tmp",  io.path.isdir("/tmp"),   true)
+check("path.isfile /tmp", io.path.isfile("/tmp"),  false)
+check("path.exists fake", io.path.exists("/nonexistent_xyz"), false)
+
+let cwd = io.cwd()
+check("cwd non-empty", len(cwd) > 0, true)
+
+let entries = io.listdir("/tmp")
+check("listdir returns array", len(entries) >= 0, true)
+
+# ─── Risultati ────────────────────────────────────────────────────────────
+println(f"\n=== v0.2.18 test results: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL TESTS PASSED")
