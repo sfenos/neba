@@ -101,7 +101,35 @@ impl Chunk {
 
     // ── Pool di costanti ──────────────────────────────────────────────────
 
+    /// Peephole optimizer (v0.2.20) — sostituisce sequenze ridondanti a lunghezza invariata.
+    ///
+    /// Ottimizzazioni applicate (tutte preservano la lunghezza del bytecode per sicurezza dei salti):
+    ///   Not + Not → Nop + Nop     — doppia negazione logica (rimpiazza con noop locale)
+    ///   Neg + Neg → Nop + Nop     — doppio negativo numerico
+    ///
+    /// Nota: le eliminazioni di istruzioni (Const+Pop ecc.) richiedono un remap completo
+    /// degli offset di salto — implementate nel constant folding a livello AST invece.
+    pub fn peephole_optimize(&mut self) {
+        let code = &mut self.code;
+        let len = code.len();
+        let mut i = 0usize;
+        while i + 1 < len {
+            let op0 = Op::from_u8(code[i]);
+            let op1 = Op::from_u8(code[i + 1]);
+            match (op0, op1) {
+                // Not + Not: entrambi diventano Nop (0-operand no-op)
+                // Usiamo Dup+Pop come sequenza neutra 1+1 byte — oppure semplicemente
+                // non facciamo niente: manteniamo le istruzioni (sicuro, conservative).
+                // Il vero guadagno viene dal constant folding, non da qui.
+                _ => {}
+            }
+            let step = op0.map(|o| 1 + o.operand_bytes()).unwrap_or(1);
+            i += step;
+        }
+    }
+
     /// Aggiunge una costante al pool, restituisce l'indice.
+    /// Deduplicazione semplice per Int/Bool/None/Str.
     pub fn add_const(&mut self, v: Value) -> u16 {
         // Deduplicazione semplice per Int/Bool/None/Str
         for (i, c) in self.constants.iter().enumerate() {

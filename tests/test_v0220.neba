@@ -1,0 +1,99 @@
+# Test suite v0.2.20 — constant folding
+var ok = 0
+var fail = 0
+fn check(label, got, expected)
+    if got == expected
+        ok += 1
+    else
+        fail += 1
+        println(f"FAIL [{label}]: got {got}, expected {expected}")
+fn check_approx(label, got, expected)
+    var diff = got - expected
+    if diff < 0.0
+        diff = -diff
+    if diff < 0.0001
+        ok += 1
+    else
+        fail += 1
+        println(f"FAIL [{label}]: got {got}, expected ~{expected}")
+
+# ── Int op Int ────────────────────────────────────────────────────────────
+check("2+3",       2 + 3,       5)
+check("10-4",      10 - 4,      6)
+check("3*7",       3 * 7,       21)
+check("10/4",      10 / 4,      2.5)
+check("10//3",     10 // 3,     3)
+check("10%3",      10 % 3,      1)
+check("2**10",     2 ** 10,     1024)
+check("2**0",      2 ** 0,      1)
+check("6&3",       6 & 3,       2)
+check("5|2",       5 | 2,       7)
+check("6^3",       6 ^ 3,       5)
+check("1<<4",      1 << 4,      16)
+check("32>>2",     32 >> 2,     8)
+
+# ── Comparazioni Int ──────────────────────────────────────────────────────
+check("3==3",      3 == 3,      true)
+check("3!=4",      3 != 4,      true)
+check("2<5",       2 < 5,       true)
+check("5>2",       5 > 2,       true)
+check("3<=3",      3 <= 3,      true)
+check("4>=4",      4 >= 4,      true)
+
+# ── Float op Float ────────────────────────────────────────────────────────
+check_approx("1.5+2.5",  1.5 + 2.5,  4.0)
+check_approx("3.0*2.0",  3.0 * 2.0,  6.0)
+check_approx("10.0/4.0", 10.0 / 4.0, 2.5)
+check_approx("2.0**3.0", 2.0 ** 3.0, 8.0)
+
+# ── Mixed Int/Float ───────────────────────────────────────────────────────
+check_approx("1+2.5",    1 + 2.5,    3.5)
+check_approx("3.0*2",    3.0 * 2,    6.0)
+check("2<3.5",           2 < 3.5,    true)
+
+# ── Bool logic ────────────────────────────────────────────────────────────
+check("true and true",  true and true,   true)
+check("true and false", true and false,  false)
+check("false or true",  false or true,   true)
+check("false or false", false or false,  false)
+check("true==true",     true == true,    true)
+check("true!=false",    true != false,   true)
+
+# ── Str concatenazione ────────────────────────────────────────────────────
+check("str+str",   "hello" + " world",  "hello world")
+check("str==str",  "abc" == "abc",      true)
+check("str<str",   "abc" < "bcd",       true)
+check("str!=str",  "abc" != "xyz",      true)
+
+# ── Unary fold ────────────────────────────────────────────────────────────
+check("neg int",   -5,          -5)
+check("neg neg",   -(-7),       7)
+check("not false", not false,   true)
+check("not true",  not true,    false)
+check("~5",        ~5,          -6)
+
+# ── Espressioni complesse (folding ricorsivo sull'AST) ────────────────────
+check("2+3*4",     2 + 3 * 4,   14)   # precedenza gestita dall'AST
+check("(2+3)*4",   (2+3)*4,     20)
+check("10-2-3",    10 - 2 - 3,  5)
+check("2**3**1",   2**3**1,     8)
+check("1<2 and 3<4", 1<2 and 3<4, true)
+
+# ── Le variabili NON vengono foldate (runtime) ────────────────────────────
+var x = 10
+var y = 20
+check("var+var",   x + y,       30)   # non foldato, ma deve funzionare
+
+# ── Const in loop (il folding avviene una sola volta a compile-time) ──────
+var total = 0
+for i in 0..1000
+    total += 3 * 7    # → 21, un solo Const nel bytecode
+check("fold in loop", total, 21000)
+
+# ── Divisione per zero NON foldabile (None ritornato → runtime) ──────────
+var dz_ok = true
+# Non possiamo testare divisione per zero senza eccezione, skip
+
+println(f"\n=== v0.2.20 test results: {ok} passed, {fail} failed ===")
+if fail == 0
+    println("ALL TESTS PASSED")

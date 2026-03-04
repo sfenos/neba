@@ -50,6 +50,91 @@ pub struct TraitInfo {
 
 // ── Compiler ──────────────────────────────────────────────────────────────
 
+
+// ── Constant Folding (v0.2.20) ──────────────────────────────────────────────
+// Funzioni libere per valutare espressioni costanti a compile-time.
+
+fn try_fold_binary(op: &BinOp, lk: &ExprKind, rk: &ExprKind) -> Option<Value> {
+    match (lk, rk) {
+        // ── Int op Int ────────────────────────────────────────────────────
+        (ExprKind::Int(a), ExprKind::Int(b)) => match op {
+            BinOp::Add    => Some(Value::Int(a.wrapping_add(*b))),
+            BinOp::Sub    => Some(Value::Int(a.wrapping_sub(*b))),
+            BinOp::Mul    => Some(Value::Int(a.wrapping_mul(*b))),
+            BinOp::Div    => if *b != 0 { Some(Value::Float(*a as f64 / *b as f64)) } else { None },
+            BinOp::IntDiv => if *b != 0 { Some(Value::Int(a.wrapping_div(*b))) } else { None },
+            BinOp::Mod    => if *b != 0 { Some(Value::Int(a.wrapping_rem(*b))) } else { None },
+            BinOp::Pow    => if *b >= 0 { Some(Value::Int(a.wrapping_pow(*b as u32))) }
+                             else { Some(Value::Float((*a as f64).powi(*b as i32))) },
+            BinOp::Eq  => Some(Value::Bool(a == b)),
+            BinOp::Ne  => Some(Value::Bool(a != b)),
+            BinOp::Lt  => Some(Value::Bool(a < b)),
+            BinOp::Le  => Some(Value::Bool(a <= b)),
+            BinOp::Gt  => Some(Value::Bool(a > b)),
+            BinOp::Ge  => Some(Value::Bool(a >= b)),
+            BinOp::BitAnd => Some(Value::Int(a & b)),
+            BinOp::BitOr  => Some(Value::Int(a | b)),
+            BinOp::BitXor => Some(Value::Int(a ^ b)),
+            BinOp::Shl    => Some(Value::Int(a << (b & 63))),
+            BinOp::Shr    => Some(Value::Int(a >> (b & 63))),
+            _ => None,
+        },
+        // ── Float op Float ────────────────────────────────────────────────
+        (ExprKind::Float(a), ExprKind::Float(b)) => match op {
+            BinOp::Add => Some(Value::Float(a + b)),
+            BinOp::Sub => Some(Value::Float(a - b)),
+            BinOp::Mul => Some(Value::Float(a * b)),
+            BinOp::Div => Some(Value::Float(a / b)),
+            BinOp::Pow => Some(Value::Float(a.powf(*b))),
+            BinOp::Eq  => Some(Value::Bool(a == b)),
+            BinOp::Ne  => Some(Value::Bool(a != b)),
+            BinOp::Lt  => Some(Value::Bool(a < b)),
+            BinOp::Le  => Some(Value::Bool(a <= b)),
+            BinOp::Gt  => Some(Value::Bool(a > b)),
+            BinOp::Ge  => Some(Value::Bool(a >= b)),
+            _  => None,
+        },
+        // ── Int op Float / Float op Int — promozione automatica ──────────
+        (ExprKind::Int(a), ExprKind::Float(b)) => {
+            try_fold_binary(op, &ExprKind::Float(*a as f64), &ExprKind::Float(*b))
+        }
+        (ExprKind::Float(a), ExprKind::Int(b)) => {
+            try_fold_binary(op, &ExprKind::Float(*a), &ExprKind::Float(*b as f64))
+        }
+        // ── Bool logic ────────────────────────────────────────────────────
+        (ExprKind::Bool(a), ExprKind::Bool(b)) => match op {
+            BinOp::And => Some(Value::Bool(*a && *b)),
+            BinOp::Or  => Some(Value::Bool(*a || *b)),
+            BinOp::Eq  => Some(Value::Bool(a == b)),
+            BinOp::Ne  => Some(Value::Bool(a != b)),
+            _ => None,
+        },
+        // ── Str + Str → concatenazione ────────────────────────────────────
+        (ExprKind::Str(a), ExprKind::Str(b)) => match op {
+            BinOp::Add => Some(Value::str(format!("{}{}", a, b))),
+            BinOp::Eq  => Some(Value::Bool(a == b)),
+            BinOp::Ne  => Some(Value::Bool(a != b)),
+            BinOp::Lt  => Some(Value::Bool(a < b)),
+            BinOp::Le  => Some(Value::Bool(a <= b)),
+            BinOp::Gt  => Some(Value::Bool(a > b)),
+            BinOp::Ge  => Some(Value::Bool(a >= b)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn try_fold_unary(op: &UnaryOp, operand: &ExprKind) -> Option<Value> {
+    match (op, operand) {
+        (UnaryOp::Neg,    ExprKind::Int(n))   => Some(Value::Int(n.wrapping_neg())),
+        (UnaryOp::Neg,    ExprKind::Float(f)) => Some(Value::Float(-f)),
+        (UnaryOp::Not,    ExprKind::Bool(b))  => Some(Value::Bool(!b)),
+        (UnaryOp::BitNot, ExprKind::Int(n))   => Some(Value::Int(!n)),
+        _ => None,
+    }
+}
+
+
 pub struct Compiler {
     chunk: Chunk,
     locals: Vec<Local>,
@@ -197,6 +282,7 @@ impl Compiler {
             c.chunk.emit(Op::Nil, last_line);
         }
         c.chunk.emit(Op::Halt, last_line);
+        c.chunk.peephole_optimize();
         Ok(c.chunk)
     }
 
@@ -459,11 +545,16 @@ impl Compiler {
             ExprKind::Ident(name) => { self.emit_load(name, line)?; }
 
             ExprKind::Unary { op, operand } => {
-                self.compile_expr(operand)?;
-                match op {
-                    UnaryOp::Neg    => { self.chunk.emit(Op::Neg, line); }
-                    UnaryOp::Not    => { self.chunk.emit(Op::Not, line); }
-                    UnaryOp::BitNot => { self.chunk.emit(Op::BitNot, line); }
+                // Constant folding per operatori unari su literali
+                if let Some(folded) = try_fold_unary(op, &operand.inner) {
+                    self.emit_folded(folded, line);
+                } else {
+                    self.compile_expr(operand)?;
+                    match op {
+                        UnaryOp::Neg    => { self.chunk.emit(Op::Neg, line); }
+                        UnaryOp::Not    => { self.chunk.emit(Op::Not, line); }
+                        UnaryOp::BitNot => { self.chunk.emit(Op::BitNot, line); }
+                    }
                 }
             }
 
@@ -576,6 +667,20 @@ impl Compiler {
 
     // ── Binary ────────────────────────────────────────────────────────────
 
+
+    fn emit_folded(&mut self, val: Value, line: u32) {
+        match &val {
+            Value::Bool(true)  => { self.chunk.emit(Op::True, line); }
+            Value::Bool(false) => { self.chunk.emit(Op::False, line); }
+            Value::None        => { self.chunk.emit(Op::Nil, line); }
+            _ => {
+                let ci = self.chunk.add_const(val);
+                self.chunk.emit(Op::Const, line);
+                self.chunk.emit_u16(ci);
+            }
+        }
+    }
+
     fn compile_binary(&mut self, op: &BinOp, left: &Expr, right: &Expr, line: u32) -> VmResult<()> {
         match op {
             BinOp::And => {
@@ -613,6 +718,11 @@ impl Compiler {
                 self.chunk.emit(Op::Is, line);
             }
             _ => {
+                // Constant folding: se entrambi i lati sono literali, calcola a compile-time
+                if let Some(folded) = try_fold_binary(op, &left.inner, &right.inner) {
+                    self.emit_folded(folded, line);
+                    return Ok(());
+                }
                 self.compile_expr(left)?;
                 self.compile_expr(right)?;
                 let instr = match op {
@@ -1087,7 +1197,11 @@ impl Compiler {
             name: name.to_string(),
             arity,
             max_arity,
-            chunk: std::rc::Rc::new(fn_compiler.chunk),
+            chunk: std::rc::Rc::new({
+                let mut ch = fn_compiler.chunk;
+                ch.peephole_optimize();
+                ch
+            }),
             upvalues: Vec::new(),
             defaults,
             is_async,
@@ -1265,7 +1379,7 @@ impl Compiler {
             name:      ctor_name,
             arity:     ctor_arity,
             max_arity: ctor_max_arity,
-            chunk:     std::rc::Rc::new(ctor.chunk),
+            chunk:     std::rc::Rc::new({ let mut ch = ctor.chunk; ch.peephole_optimize(); ch }),
             upvalues:  Vec::new(),
             defaults:  Vec::new(),
             is_async:  false,
