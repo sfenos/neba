@@ -803,11 +803,32 @@ impl Vm {
                 }
             }
             _ => {
-                let i = match &idx { Value::Int(n) => n, _ => return Err(VmError::TypeError("array/string index must be Int".into())) };
-                match obj {
-                    Value::Array(arr) => { let len = arr.borrow().len(); let a = self.resolve_idx(*i, len)?; Ok(arr.borrow()[a].clone()) }
-                    Value::Str(s) => { let chars: Vec<char> = s.chars().collect(); let a = self.resolve_idx(*i, chars.len())?; Ok(Value::str(chars[a].to_string())) }
-                    _ => Err(VmError::TypeError(format!("cannot index {}", obj.type_name()))),
+                // Array/Str: supporta indice Int e slice IntRange
+                match (&obj, &idx) {
+                    (Value::Array(arr), Value::IntRange(start, end, inclusive)) => {
+                        let arr = arr.borrow();
+                        let len = arr.len() as i64;
+                        let s = if *start < 0 { (len + start).max(0) } else { (*start).min(len) } as usize;
+                        let e = if *end < 0 { (len + end).max(0) } else { (*end).min(len) } as usize;
+                        let e = if *inclusive { (e + 1).min(arr.len()) } else { e };
+                        Ok(Value::array(arr[s..e.max(s)].to_vec()))
+                    }
+                    (Value::Str(st), Value::IntRange(start, end, inclusive)) => {
+                        let chars: Vec<char> = st.chars().collect();
+                        let len = chars.len() as i64;
+                        let s = if *start < 0 { (len + start).max(0) } else { (*start).min(len) } as usize;
+                        let e = if *end < 0 { (len + end).max(0) } else { (*end).min(len) } as usize;
+                        let e = if *inclusive { (e + 1).min(chars.len()) } else { e };
+                        Ok(Value::str(chars[s..e.max(s)].iter().collect::<String>()))
+                    }
+                    _ => {
+                        let i = match &idx { Value::Int(n) => n, _ => return Err(VmError::TypeError("array/string index must be Int".into())) };
+                        match obj {
+                            Value::Array(arr) => { let len = arr.borrow().len(); let a = self.resolve_idx(*i, len)?; Ok(arr.borrow()[a].clone()) }
+                            Value::Str(st) => { let chars: Vec<char> = st.chars().collect(); let a = self.resolve_idx(*i, chars.len())?; Ok(Value::str(chars[a].to_string())) }
+                            _ => Err(VmError::TypeError(format!("cannot index {}", obj.type_name()))),
+                        }
+                    }
                 }
             }
         }
